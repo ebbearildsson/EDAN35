@@ -7,6 +7,7 @@
 #include <string>
 #include <cmath>
 #include <vector>
+#include "main.h"
 
 struct Camera {
     glm::vec3 position;
@@ -107,7 +108,76 @@ bool processInput(GLFWwindow* window, Camera* cam, float deltaTime) {
         cam->position += glm::normalize(glm::cross(cam->forward, cam->up)) * velocity;
         moved = true;
     }
+    if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS) {
+        cam->position += cam->up * velocity;
+        moved = true;
+    }
+    if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS) {
+        cam->position -= cam->up * velocity;
+        moved = true;
+    }
+
     return moved;
+}
+
+void createLights(GLuint &lightUBO) {
+    Light light = {
+        glm::normalize(glm::vec3(50.0f, 50.0f, 50.0f)),
+        1.0f};
+    glGenBuffers(1, &lightUBO);
+    glBindBuffer(GL_UNIFORM_BUFFER, lightUBO);
+    glBufferData(GL_UNIFORM_BUFFER, sizeof(Light), &light, GL_DYNAMIC_DRAW);
+    glBindBufferBase(GL_UNIFORM_BUFFER, 1, lightUBO); // binding = 1 for UBO
+    glBindBuffer(GL_UNIFORM_BUFFER, 0);
+}
+
+void createTriangles(GLuint &triangleSSBO) {
+    const float s = 5.0f;
+    const float z = 0.0f;
+    std::vector<Triangle> triangles = {
+        {{s, z, -s}, 0.0f, {-s, z, -s}, 0.0f, {s, z, s}, 0.0f, {1.0f, 0.2f, 0.2f, 1.0f}}, // Floor
+        {{-s, z, s}, 0.0f, {-s, z, -s}, 0.0f, {s, z, s}, 0.0f, {1.0f, 0.2f, 0.2f, 1.0f}},
+        {{s, s, s}, 0.0f, {-s, s, s}, 0.0f, {s, s, -s}, 0.0f, {1.0f, 1.0f, 0.2f, 1.0f}}, // Ceiling
+        {{-s, s, s}, 0.0f, {s, s, -s}, 0.0f, {-s, s, -s}, 0.0f, {1.0f, 1.0f, 0.2f, 1.0f}},
+        {{s, z, -s}, 0.0f, {-s, s, -s}, 0.0f, {-s, z, -s}, 0.0f, {0.2f, 0.2f, 1.0f, 1.0f}}, // Back wall
+        {{s, z, -s}, 0.0f, {s, s, -s}, 0.0f, {-s, s, -s}, 0.0f, {0.2f, 0.2f, 1.0f, 1.0f}},
+        {{s, z, s}, 0.0f, {s, s, -s}, 0.0f, {s, z, -s}, 0.0f, {1.0f, 0.2f, 1.0f, 1.0f}}, // Right wall
+        {{s, z, s}, 0.0f, {s, s, s}, 0.0f, {s, s, -s}, 0.0f, {1.0f, 0.2f, 1.0f, 1.0f}},
+        {{-s, z, s}, 0.0f, {-s, s, -s}, 0.0f, {-s, z, -s}, 0.0f, {0.2f, 1.0f, 0.2f, 1.0f}}, // Left wall
+        {{-s, z, s}, 0.0f, {-s, s, s}, 0.0f, {-s, s, -s}, 0.0f, {0.2f, 1.0f, 0.2f, 1.0f}}};
+    glGenBuffers(1, &triangleSSBO);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, triangleSSBO);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, triangles.size() * sizeof(Triangle), triangles.data(), GL_DYNAMIC_DRAW);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, triangleSSBO); // binding = 1 for SSBO
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+}
+
+void createSpheres(GLuint &sphereSSBO) {
+    std::vector<Sphere> spheres = {
+        {{0.0f, 1.0f, 0.0f}, 0.5f, {1.0f, 0.2f, 0.2f, 1.0f}},
+        {{1.0f, 1.0f, -1.0f}, 0.3f, {0.2f, 0.8f, 0.2f, 1.0f}}};
+
+    glGenBuffers(1, &sphereSSBO);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, sphereSSBO);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, spheres.size() * sizeof(Sphere), spheres.data(), GL_DYNAMIC_DRAW);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, sphereSSBO); // binding = 0 for SSBO
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+}
+
+void createCamera(GLuint &cameraUBO, Camera &cam) {
+    cam = {
+        glm::vec3(0.0f, 1.5f, 5.0f),
+        glm::radians(45.0f),
+        glm::vec3(0.0f, -0.2f, -1.0f),
+        800.0f / 600.0f,
+        glm::vec3(0.0f, 1.0f, 0.0f),
+        0.0f
+    };
+    glGenBuffers(1, &cameraUBO);
+    glBindBuffer(GL_UNIFORM_BUFFER, cameraUBO);
+    glBufferData(GL_UNIFORM_BUFFER, sizeof(Camera), &cam, GL_DYNAMIC_DRAW);
+    glBindBufferBase(GL_UNIFORM_BUFFER, 0, cameraUBO); // binding = 0 for UBO
+    glBindBuffer(GL_UNIFORM_BUFFER, 0);
 }
 
 int main() {
@@ -157,50 +227,14 @@ int main() {
 
     GLuint sphereSSBO, triangleSSBO, cameraUBO, lightUBO;
 
-    std::vector<Sphere> spheres = {
-        {{0.0f, 0.0f, 0.0f}, 0.5f, {1.0f, 0.2f, 0.2f, 1.0f}},
-        {{1.0f, 0.0f, -1.0f}, 0.3f, {0.2f, 0.8f, 0.2f, 1.0f}}
-    };
-    
-    glGenBuffers(1, &sphereSSBO);
-    glBindBuffer(GL_SHADER_STORAGE_BUFFER, sphereSSBO);
-    glBufferData(GL_SHADER_STORAGE_BUFFER, spheres.size() * sizeof(Sphere), spheres.data(), GL_DYNAMIC_DRAW);
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, sphereSSBO); // binding = 0 for SSBO
-    glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+    createSpheres(sphereSSBO);
 
-    std::vector<Triangle> triangles = {
-        {{-5.0f, -1.0f, -5.0f}, 0.0f, {5.0f, -1.0f,  0.0f}, 0.0f, {-5.0f, -1.0f,  0.0f}, 0.0f, {0.2f, 0.2f, 1.0f, 1.0f}},
-        {{ 5.0f, -1.0f,  0.0f}, 0.0f, {5.0f, -1.0f, -5.0f}, 0.0f, {-5.0f, -1.0f, -5.0f}, 0.0f, {1.0f, 1.0f, 0.2f, 1.0f}}
-    };
-    glGenBuffers(1, &triangleSSBO);
-    glBindBuffer(GL_SHADER_STORAGE_BUFFER, triangleSSBO);
-    glBufferData(GL_SHADER_STORAGE_BUFFER, triangles.size() * sizeof(Triangle), triangles.data(), GL_DYNAMIC_DRAW);
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, triangleSSBO); // binding = 1 for SSBO
-    glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0); 
-    
-    Camera cam = {
-        glm::vec3(0.0f, 1.5f, 5.0f),
-        glm::radians(90.0f),
-        glm::vec3(0.0f, -0.2f, -1.0f),
-        800.0f / 600.0f,
-        glm::vec3(0.0f, 1.0f, 0.0f),
-        0.0f
-    };
-    glGenBuffers(1, &cameraUBO);
-    glBindBuffer(GL_UNIFORM_BUFFER, cameraUBO);
-    glBufferData(GL_UNIFORM_BUFFER, sizeof(Camera), &cam, GL_DYNAMIC_DRAW);
-    glBindBufferBase(GL_UNIFORM_BUFFER, 0, cameraUBO); // binding = 0 for UBO
-    glBindBuffer(GL_UNIFORM_BUFFER, 0);
-    
-    Light light = {
-        glm::normalize(glm::vec3(50.0f, 50.0f, 50.0f)), 
-        1.0f
-    };
-    glGenBuffers(1, &lightUBO);
-    glBindBuffer(GL_UNIFORM_BUFFER, lightUBO);
-    glBufferData(GL_UNIFORM_BUFFER, sizeof(Light), &light, GL_DYNAMIC_DRAW);
-    glBindBufferBase(GL_UNIFORM_BUFFER, 1, lightUBO); // binding = 1 for UBO
-    glBindBuffer(GL_UNIFORM_BUFFER, 0);
+    createTriangles(triangleSSBO);
+
+    Camera cam;
+    createCamera(cameraUBO, cam);
+
+    createLights(lightUBO);
 
     int nbFrames = 0;
     double lastTime = glfwGetTime();
