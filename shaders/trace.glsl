@@ -57,8 +57,9 @@ void main() {
         if (discriminant > 0.0) {
             float t = -b - sqrt(discriminant);
             if (t > 0.001 && t < closestT) {
-                vec3 normal = normalize((camPos + t * rayDir) - s.center);
-                vec3 lightDir = normalize(lightPos - (camPos + t * rayDir));
+                vec3 Q = camPos + t * rayDir;
+                vec3 normal = normalize(Q - s.center);
+                vec3 lightDir = normalize(Q - lightPos);
                 float L = max(dot(normal, lightDir), 0.0);
                 closestT = t;
                 hitColor = s.color * L * lightIntensity;

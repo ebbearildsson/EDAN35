@@ -7,7 +7,6 @@
 #include <string>
 #include <cmath>
 #include <vector>
-#include "main.h"
 
 struct Camera {
     glm::vec3 position;
