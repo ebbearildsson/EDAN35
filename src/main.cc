@@ -8,33 +8,38 @@
 #include <cmath>
 #include <vector>
 
+using namespace glm;
 struct Camera {
-    glm::vec3 position;
+    vec3 position;
     float fov;
-    glm::vec3 forward;
+    vec3 forward;
     float aspect;
-    glm::vec3 up;
+    vec3 up;
     float _pad;
 };
 
 struct Sphere {
-    glm::vec3 center;
+    vec3 center;
     float radius;
-    glm::vec4 color;
+    vec4 color;
+    float emission;
+    float reflectivity;
+    float translucency;
+    float refractiveIndex;
 };
 
 struct Triangle {
-    glm::vec3 v0;
+    vec3 v0;
     float _pad0;
-    glm::vec3 v1;
+    vec3 v1;
     float _pad1;
-    glm::vec3 v2;
+    vec3 v2;
     float _pad2;
-    glm::vec4 color;
+    vec4 color;
 };
 
 struct Light {
-    glm::vec3 direction;
+    vec3 direction;
     float intensity;
 };
 
@@ -100,11 +105,11 @@ bool processInput(GLFWwindow* window, Camera* cam, float deltaTime) {
         moved = true;
     }
     if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) {
-        cam->position -= glm::normalize(glm::cross(cam->forward, cam->up)) * velocity;
+        cam->position -= normalize(cross(cam->forward, cam->up)) * velocity;
         moved = true;
     }
     if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) {
-        cam->position += glm::normalize(glm::cross(cam->forward, cam->up)) * velocity;
+        cam->position += normalize(cross(cam->forward, cam->up)) * velocity;
         moved = true;
     }
     if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS) {
@@ -121,7 +126,7 @@ bool processInput(GLFWwindow* window, Camera* cam, float deltaTime) {
 
 void createLights(GLuint &lightUBO) {
     Light light = {
-        glm::normalize(glm::vec3(50.0f, 50.0f, 50.0f)),
+        normalize(vec3(50.0f, 50.0f, 50.0f)),
         1.0f};
     glGenBuffers(1, &lightUBO);
     glBindBuffer(GL_UNIFORM_BUFFER, lightUBO);
@@ -153,8 +158,11 @@ void createTriangles(GLuint &triangleSSBO) {
 
 void createSpheres(GLuint &sphereSSBO) {
     std::vector<Sphere> spheres = {
-        {{0.0f, 1.0f, 0.0f}, 0.5f, {1.0f, 0.2f, 0.2f, 1.0f}},
-        {{1.0f, 1.0f, -1.0f}, 0.3f, {0.2f, 0.8f, 0.2f, 1.0f}}};
+        {{0.0f, 1.0f, 0.0f}, 0.5f, {1.0f, 0.2f, 0.2f, 1.0f}, 0.0f, 0.5f, 0.0f, 1.5f},
+        {{-1.5f, 1.0f, -1.0f}, 0.5f, {0.2f, 0.2f, 1.0f, 1.0f}, 0.0f, 0.0f, 0.8f, 1.3f},
+        {{1.5f, 1.0f, -1.0f}, 0.5f, {0.2f, 1.0f, 0.2f, 1.0f}, 0.5f, 0.0f, 0.0f, 1.0f},
+        {{0.0f, 3.0f, 0.0f}, 0.3f, {1.0f, 1.0f, 1.0f, 1.0f}, 5.0f, 0.0f, 0.0f, 1.0f},
+    };
 
     glGenBuffers(1, &sphereSSBO);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, sphereSSBO);
@@ -165,11 +173,11 @@ void createSpheres(GLuint &sphereSSBO) {
 
 void createCamera(GLuint &cameraUBO, Camera &cam) {
     cam = {
-        glm::vec3(0.0f, 1.5f, 5.0f),
-        glm::radians(45.0f),
-        glm::vec3(0.0f, -0.2f, -1.0f),
+        vec3(0.0f, 1.5f, 5.0f),
+        radians(45.0f),
+        vec3(0.0f, -0.2f, -1.0f),
         800.0f / 600.0f,
-        glm::vec3(0.0f, 1.0f, 0.0f),
+        vec3(0.0f, 1.0f, 0.0f),
         0.0f
     };
     glGenBuffers(1, &cameraUBO);

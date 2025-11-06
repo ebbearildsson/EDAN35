@@ -4,6 +4,10 @@ struct Sphere {
     vec3 center;
     float radius;
     vec4 color;
+    float emission;
+    float reflectivity;
+    float translucancy;
+    float refractiveIndex;
 };
 
 struct Triangle {
@@ -61,6 +65,14 @@ void main() {
                 vec3 normal = normalize(Q - s.center);
                 vec3 lightDir = normalize(Q - lightPos);
                 float L = max(dot(normal, lightDir), 0.0);
+                
+                // reflection
+                if (s.reflectivity > 0.0) {
+                    vec3 reflectedDir = reflect(rayDir, normal);
+                    //! TODO
+                }
+                
+                
                 closestT = t;
                 hitColor = s.color * L * lightIntensity;
             }
