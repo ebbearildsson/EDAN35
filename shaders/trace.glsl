@@ -97,8 +97,13 @@ void main() {
                 if (v >= 0.0 && u + v <= 1.0) {
                     float t = f * dot(edge2, q);
                     if (t > 0.001 && t < closestT) {
+                        vec3 Q = camPos + t * rayDir;
+                        vec3 normal = normalize(cross(tri.v0, tri.v1));
+                        vec3 lightDir = normalize(Q - lightPos);
+                        float L = max(dot(normal, lightDir), 0.0);
+
                         closestT = t;
-                        hitColor = tri.color;
+                        hitColor = tri.color * L * lightIntensity;
                     }
                 }
             }

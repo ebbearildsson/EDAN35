@@ -139,16 +139,22 @@ void createTriangles(GLuint &triangleSSBO) {
     const float s = 5.0f;
     const float z = 0.0f;
     std::vector<Triangle> triangles = {
-        {{s, z, -s}, 0.0f, {-s, z, -s}, 0.0f, {s, z, s}, 0.0f, {1.0f, 0.2f, 0.2f, 1.0f}}, // Floor
-        {{-s, z, s}, 0.0f, {-s, z, -s}, 0.0f, {s, z, s}, 0.0f, {1.0f, 0.2f, 0.2f, 1.0f}},
-        {{s, s, s}, 0.0f, {-s, s, s}, 0.0f, {s, s, -s}, 0.0f, {1.0f, 1.0f, 0.2f, 1.0f}}, // Ceiling
-        {{-s, s, s}, 0.0f, {s, s, -s}, 0.0f, {-s, s, -s}, 0.0f, {1.0f, 1.0f, 0.2f, 1.0f}},
-        {{s, z, -s}, 0.0f, {-s, s, -s}, 0.0f, {-s, z, -s}, 0.0f, {0.2f, 0.2f, 1.0f, 1.0f}}, // Back wall
-        {{s, z, -s}, 0.0f, {s, s, -s}, 0.0f, {-s, s, -s}, 0.0f, {0.2f, 0.2f, 1.0f, 1.0f}},
-        {{s, z, s}, 0.0f, {s, s, -s}, 0.0f, {s, z, -s}, 0.0f, {1.0f, 0.2f, 1.0f, 1.0f}}, // Right wall
-        {{s, z, s}, 0.0f, {s, s, s}, 0.0f, {s, s, -s}, 0.0f, {1.0f, 0.2f, 1.0f, 1.0f}},
-        {{-s, z, s}, 0.0f, {-s, s, -s}, 0.0f, {-s, z, -s}, 0.0f, {0.2f, 1.0f, 0.2f, 1.0f}}, // Left wall
-        {{-s, z, s}, 0.0f, {-s, s, s}, 0.0f, {-s, s, -s}, 0.0f, {0.2f, 1.0f, 0.2f, 1.0f}}};
+        {{-s, z, -s}, 0.0f, { s, z, -s}, 0.0f, { s, z,  s}, 0.0f, {1.0f, 1.0f, 1.0f, 1.0f}}, // Floor
+        {{-s, z,  s}, 0.0f, {-s, z, -s}, 0.0f, { s, z,  s}, 0.0f, {1.0f, 1.0f, 1.0f, 1.0f}},
+        {{-s, s,  s}, 0.0f, { s, s,  s}, 0.0f, { s, s, -s}, 0.0f, {1.0f, 1.0f, 1.0f, 1.0f}}, // Ceiling
+        {{-s, s,  s}, 0.0f, { s, s, -s}, 0.0f, {-s, s, -s}, 0.0f, {1.0f, 1.0f, 1.0f, 1.0f}},
+        {{-s, z, -s}, 0.0f, {-s, s, -s}, 0.0f, { s, z, -s}, 0.0f, {1.0f, 1.0f, 1.0f, 1.0f}}, // Back wall
+        {{ s, z, -s}, 0.0f, {-s, s, -s}, 0.0f, { s, s, -s}, 0.0f, {1.0f, 1.0f, 1.0f, 1.0f}},
+        {{ s, z, -s}, 0.0f, { s, s, -s}, 0.0f, { s, z,  s}, 0.0f, {1.0f, 0.2f, 1.0f, 1.0f}}, // Right wall
+        {{ s, z,  s}, 0.0f, { s, s, -s}, 0.0f, { s, s,  s}, 0.0f, {1.0f, 0.2f, 1.0f, 1.0f}},
+        {{-s, z,  s}, 0.0f, {-s, s, -s}, 0.0f, {-s, z, -s}, 0.0f, {0.2f, 1.0f, 0.2f, 1.0f}}, // Left wall
+        {{-s, z,  s}, 0.0f, {-s, s,  s}, 0.0f, {-s, s, -s}, 0.0f, {0.2f, 1.0f, 0.2f, 1.0f}},
+    
+        // Ceiling light (two triangles)
+        {{-1.0f, s - 0.01f, -1.0f}, 0.0f, {  1.0f, s - 0.01f,  1.0f}, 0.0f, { 1.0f, s - 0.01f, -1.0f}, 1.0f, {1.0f, 0.0f, 1.0f, 1.0f}},
+        {{-1.0f, s - 0.01f, -1.0f}, 0.0f, { -1.0f, s - 0.01f,  1.0f}, 0.0f, { 1.0f, s - 0.01f,  1.0f}, 1.0f, {1.0f, 0.0f, 1.0f, 1.0f}}
+    
+    };
     glGenBuffers(1, &triangleSSBO);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, triangleSSBO);
     glBufferData(GL_SHADER_STORAGE_BUFFER, triangles.size() * sizeof(Triangle), triangles.data(), GL_DYNAMIC_DRAW);
