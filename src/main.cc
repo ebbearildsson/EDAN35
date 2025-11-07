@@ -226,10 +226,10 @@ void createTriangles(GLuint &triangleSSBO, GLuint &meshSSBO) {
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, triangleSSBO); // binding = 1 for SSBO
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 
-    glGenBuffers(1, &meshSSBO);
-    glBindBuffer(GL_SHADER_STORAGE_BUFFER, meshSSBO);
     Mesh meshes[] = { floorMesh, ceilingMesh, backWallMesh, rightWallMesh, leftWallMesh, sphereMesh };
     int meshCount = sizeof(meshes) / sizeof(Mesh);
+    glGenBuffers(1, &meshSSBO);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, meshSSBO);
     glBufferData(GL_SHADER_STORAGE_BUFFER, meshCount * sizeof(Mesh), meshes, GL_DYNAMIC_DRAW);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, meshSSBO); // binding = 2 for SSBO
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
