@@ -1,22 +1,12 @@
 #version 430 core
 
-struct Sphere {
-    vec3 center;
-    float radius;
-    vec4 color;
-    float emission;
-    float reflectivity;
-    float translucancy;
-    float refractiveIndex;
-};
-
 struct Triangle {
     vec3 v0;
-    float _pad0;
+    float emission;
     vec3 v1;
-    float _pad1;
+    float reflectivity;
     vec3 v2;
-    float _pad2;
+    float translucancy;
     vec4 color;
 };
 
@@ -37,8 +27,6 @@ layout (std140, binding = 1) uniform LightData {
     float lightIntensity;
 };
 
-layout (std430, binding = 0) buffer Spheres { Sphere spheres[]; };
-
 layout (std430, binding = 1) buffer Triangles { Triangle triangles[]; };
 
 void main() {
@@ -50,34 +38,6 @@ void main() {
     vec3 rayDir = normalize(camForward + uv.x * tan(fov / 2.0) * vec3(1.0, 0.0, 0.0) + uv.y * tan(fov / 2.0) * vec3(0.0, 1.0, 0.0));
     float closestT = 1e30;
     vec4 hitColor = vec4(0.0);
-
-    for (int i = 0; i < spheres.length(); i++) {
-        Sphere s = spheres[i];
-        vec3 oc = camPos - s.center;
-        float b = dot(oc, rayDir);
-        float c = dot(oc, oc) - s.radius * s.radius;
-        float discriminant = b * b - c;
-
-        if (discriminant > 0.0) {
-            float t = -b - sqrt(discriminant);
-            if (t > 0.001 && t < closestT) {
-                vec3 Q = camPos + t * rayDir;
-                vec3 normal = normalize(Q - s.center);
-                vec3 lightDir = normalize(Q - lightPos);
-                float L = max(dot(normal, lightDir), 0.0);
-                
-                // reflection
-                if (s.reflectivity > 0.0) {
-                    vec3 reflectedDir = reflect(rayDir, normal);
-                    //! TODO
-                }
-                
-                
-                closestT = t;
-                hitColor = s.color * L * lightIntensity;
-            }
-        }
-    }
 
     for (int i = 0; i < triangles.length(); i++) {
         Triangle tri = triangles[i];
@@ -97,13 +57,12 @@ void main() {
                 if (v >= 0.0 && u + v <= 1.0) {
                     float t = f * dot(edge2, q);
                     if (t > 0.001 && t < closestT) {
-                        vec3 Q = camPos + t * rayDir;
-                        vec3 normal = normalize(cross(tri.v0, tri.v1));
-                        vec3 lightDir = normalize(Q - lightPos);
-                        float L = max(dot(normal, lightDir), 0.0);
+                        vec3 Q = camPos + rayDir * t;
+                        vec3 lightDir = normalize(lightPos - Q);
+                        float diff = max(dot(normalize(cross(edge1, edge2)), lightDir), 0.0);
 
                         closestT = t;
-                        hitColor = tri.color * L * lightIntensity;
+                        hitColor = tri.color * diff * lightIntensity + vec4(tri.emission);
                     }
                 }
             }
