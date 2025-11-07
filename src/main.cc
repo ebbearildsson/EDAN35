@@ -12,6 +12,7 @@
 using glm::vec2;
 using glm::vec3;
 using glm::vec4;
+using std::vector;
 
 struct Camera {
     vec3 position;
@@ -30,6 +31,13 @@ struct Triangle {
     vec3 v2;
     float translucancy;
     vec4 color;
+};
+
+struct Mesh {
+    vec3 lowerLeftBack;
+    int triangleOffset;
+    vec3 upperRightFront;
+    int triangleCount;
 };
 
 struct Light {
@@ -127,9 +135,9 @@ void createLights(GLuint &lightUBO) {
     glBindBuffer(GL_UNIFORM_BUFFER, 0);
 }
 
-std::vector<Triangle> createSphereTriangles(vec3 center, float radius, int longitude_split_count, int latitude_split_count, 
+vector<Triangle> createSphereTriangles(vec3 center, float radius, int longitude_split_count, int latitude_split_count, 
         vec4 color, float emission, float reflectivity, float translucency) {
-    std::vector<Triangle> triangles;
+    vector<Triangle> triangles;
     
     for (int lat = 0; lat < latitude_split_count; ++lat) {
         float theta1 = glm::pi<float>() * lat / latitude_split_count;
@@ -152,35 +160,78 @@ std::vector<Triangle> createSphereTriangles(vec3 center, float radius, int longi
     return triangles;
 }
 
-void createTriangles(GLuint &triangleSSBO) {
+Mesh getMesh(vector<Triangle>& triangles, int offset) {
+    vec3 minBound(FLT_MAX);
+    vec3 maxBound(-FLT_MAX);
+    int count = triangles.size();
+    for (int i = 0; i < count; ++i) {
+        const Triangle& tri = triangles[i];
+        minBound = glm::min(minBound, glm::min(tri.v0, glm::min(tri.v1, tri.v2)));
+        maxBound = glm::max(maxBound, glm::max(tri.v0, glm::max(tri.v1, tri.v2)));
+    }
+    return { minBound, offset, maxBound, count };
+}
+
+void createTriangles(GLuint &triangleSSBO, GLuint &meshSSBO) {
     const float s = 5.0f;
     const float z = 0.0f;
-    std::vector<Triangle> triangles = {
-        {{-s, z, -s}, 0.0f, { s, z,  s}, 0.0f, { s, z, -s}, 0.0f, {1.0f, 1.0f, 1.0f, 1.0f}}, // Floor
-        {{ s, z,  s}, 0.0f, {-s, z, -s}, 0.0f, {-s, z,  s}, 0.0f, {1.0f, 1.0f, 1.0f, 1.0f}},
-
-        {{ s, s,  s}, 0.0f, {-s, s,  s}, 0.0f, { s, s, -s}, 0.0f, {1.0f, 1.0f, 1.0f, 1.0f}}, // Ceiling
-        {{-s, s, -s}, 0.0f, { s, s, -s}, 0.0f, {-s, s,  s}, 0.0f, {1.0f, 1.0f, 1.0f, 1.0f}},
-
-        {{-s, z, -s}, 0.0f, { s, z, -s}, 0.0f, {-s, s, -s}, 0.0f, {1.0f, 1.0f, 1.0f, 1.0f}}, // Back wall
-        {{-s, s, -s}, 0.0f, { s, z, -s}, 0.0f, { s, s, -s}, 0.0f, {1.0f, 1.0f, 1.0f, 1.0f}},
-
-        {{ s, z,  s}, 0.0f, { s, s, -s}, 0.0f, { s, z, -s}, 0.0f, {1.0f, 0.2f, 0.2f, 1.0f}}, // Right wall
-        {{ s, z,  s}, 0.0f, { s, s,  s}, 0.0f, { s, s, -s}, 0.0f, {1.0f, 0.2f, 0.2f, 1.0f}},
-
-        {{-s, z, -s}, 0.0f, {-s, s, -s}, 0.0f, {-s, z,  s}, 0.0f, {0.2f, 0.2f, 1.0f, 1.0f}}, // Left wall
-        {{-s, z,  s}, 0.0f, {-s, s, -s}, 0.0f, {-s, s,  s}, 0.0f, {0.2f, 0.2f, 1.0f, 1.0f}},    
+    vector<Triangle> floor = {
+        {{-s, z, -s}, 0.0f, { s, z,  s}, 0.0f, { s, z, -s}, 0.0f, {1.0f, 1.0f, 1.0f, 1.0f}},
+        {{ s, z,  s}, 0.0f, {-s, z, -s}, 0.0f, {-s, z,  s}, 0.0f, {1.0f, 1.0f, 1.0f, 1.0f}}
     };
-
-    std::vector<Triangle> sphereTriangles = createSphereTriangles(
-        vec3(0.0f, 1.0f, 0.0f), 0.5f, 8, 8,
+    
+    vector<Triangle> ceiling = {
+        {{ s, s,  s}, 0.0f, {-s, s,  s}, 0.0f, { s, s, -s}, 0.0f, {1.0f, 1.0f, 1.0f, 1.0f}},
+        {{-s, s, -s}, 0.0f, { s, s, -s}, 0.0f, {-s, s,  s}, 0.0f, {1.0f, 1.0f, 1.0f, 1.0f}}
+    };
+    
+    vector<Triangle> backWall = {
+        {{-s, z, -s}, 0.0f, { s, z, -s}, 0.0f, {-s, s, -s}, 0.0f, {1.0f, 1.0f, 1.0f, 1.0f}},
+        {{-s, s, -s}, 0.0f, { s, z, -s}, 0.0f, { s, s, -s}, 0.0f, {1.0f, 1.0f, 1.0f, 1.0f}}
+    };
+    
+    vector<Triangle> rightWall = {
+        {{ s, z,  s}, 0.0f, { s, s, -s}, 0.0f, { s, z, -s}, 0.0f, {1.0f, 0.2f, 0.2f, 1.0f}},
+        {{ s, z,  s}, 0.0f, { s, s,  s}, 0.0f, { s, s, -s}, 0.0f, {1.0f, 0.2f, 0.2f, 1.0f}}
+    };
+    
+    vector<Triangle> leftWall = {
+        {{-s, z, -s}, 0.0f, {-s, s, -s}, 0.0f, {-s, z,  s}, 0.0f, {0.2f, 0.2f, 1.0f, 1.0f}},
+        {{-s, z,  s}, 0.0f, {-s, s, -s}, 0.0f, {-s, s,  s}, 0.0f, {0.2f, 0.2f, 1.0f, 1.0f}}
+    };
+    
+    vector<Triangle> sphereTriangles = createSphereTriangles(
+        vec3(0.0f, 1.0f, 0.0f), 0.5f, 16, 16,
         vec4(1.0f, 0.2f, 0.2f, 1.0f), 0.0f, 0.5f, 0.0f
     );
+
+    Mesh floorMesh = getMesh(floor, 0);
+    Mesh ceilingMesh = getMesh(ceiling, floorMesh.triangleOffset + floorMesh.triangleCount);
+    Mesh backWallMesh = getMesh(backWall, ceilingMesh.triangleOffset + ceilingMesh.triangleCount);
+    Mesh rightWallMesh = getMesh(rightWall, backWallMesh.triangleOffset + backWallMesh.triangleCount);
+    Mesh leftWallMesh = getMesh(leftWall, rightWallMesh.triangleOffset + rightWallMesh.triangleCount);
+    Mesh sphereMesh = getMesh(sphereTriangles, leftWallMesh.triangleOffset + leftWallMesh.triangleCount);
+
+    vector<Triangle> triangles;
+    triangles.insert(triangles.end(), floor.begin(), floor.end());
+    triangles.insert(triangles.end(), ceiling.begin(), ceiling.end());
+    triangles.insert(triangles.end(), backWall.begin(), backWall.end());
+    triangles.insert(triangles.end(), rightWall.begin(), rightWall.end());
+    triangles.insert(triangles.end(), leftWall.begin(), leftWall.end());
     triangles.insert(triangles.end(), sphereTriangles.begin(), sphereTriangles.end());
+
     glGenBuffers(1, &triangleSSBO);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, triangleSSBO);
     glBufferData(GL_SHADER_STORAGE_BUFFER, triangles.size() * sizeof(Triangle), triangles.data(), GL_DYNAMIC_DRAW);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, triangleSSBO); // binding = 1 for SSBO
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+
+    glGenBuffers(1, &meshSSBO);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, meshSSBO);
+    Mesh meshes[] = { floorMesh, ceilingMesh, backWallMesh, rightWallMesh, leftWallMesh, sphereMesh };
+    int meshCount = sizeof(meshes) / sizeof(Mesh);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, meshCount * sizeof(Mesh), meshes, GL_DYNAMIC_DRAW);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, meshSSBO); // binding = 2 for SSBO
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 }
 
@@ -245,9 +296,9 @@ int main() {
 
     GLuint quadProgram = createQuadProgram("../shaders/quad.vert", "../shaders/quad.frag");
 
-    GLuint triangleSSBO, cameraUBO, lightUBO;
+    GLuint triangleSSBO, meshSSBO, cameraUBO, lightUBO;
 
-    createTriangles(triangleSSBO);
+    createTriangles(triangleSSBO, meshSSBO);
 
     Camera cam;
     createCamera(cameraUBO, cam);

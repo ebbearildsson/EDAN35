@@ -10,6 +10,13 @@ struct Triangle {
     vec4 color;
 };
 
+struct Mesh {
+    vec3 lowerLeftBack;
+    int triangleOffset;
+    vec3 upperRightFront;
+    int triangleCount;
+};
+
 layout (local_size_x = 8, local_size_y = 8) in;
 layout (rgba32f, binding = 0) uniform image2D imgOutput;
 
@@ -29,6 +36,8 @@ layout (std140, binding = 1) uniform LightData {
 
 layout (std430, binding = 1) buffer Triangles { Triangle triangles[]; };
 
+layout (std430, binding = 2) buffer Meshes { Mesh meshes[]; };
+
 void main() {
     ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
     ivec2 size = imageSize(imgOutput);
@@ -39,30 +48,42 @@ void main() {
     float closestT = 1e30;
     vec4 hitColor = vec4(0.0);
 
-    for (int i = 0; i < triangles.length(); i++) {
-        Triangle tri = triangles[i];
+    for (int m = 0; m < meshes.length(); m++) {
+        Mesh mesh = meshes[m];
+        vec3 tlow = (mesh.lowerLeftBack - camPos) / rayDir;
+        vec3 thigh = (mesh.upperRightFront - camPos) / rayDir;
+        vec3 tmin = min(tlow, thigh);
+        vec3 tmax = max(tlow, thigh);
+        float tclose = max(max(tmin.x, tmin.y), tmin.z);
+        float tfar = min(min(tmax.x, tmax.y), tmax.z);
 
-        vec3 edge1 = tri.v1 - tri.v0;
-        vec3 edge2 = tri.v2 - tri.v0;
-        vec3 h = cross(rayDir, edge2);
-        float a = dot(edge1, h);
+        if (tclose <= tfar) {
+            for (int i = mesh.triangleOffset; i <= mesh.triangleOffset + mesh.triangleCount; i++) {
+                Triangle tri = triangles[i];
 
-        if (abs(a) > 0.0001) {
-            float f = 1.0 / a;
-            vec3 s = camPos - tri.v0;
-            float u = f * dot(s, h);
-            if (u >= 0.0 && u <= 1.0) {
-                vec3 q = cross(s, edge1);
-                float v = f * dot(rayDir, q);
-                if (v >= 0.0 && u + v <= 1.0) {
-                    float t = f * dot(edge2, q);
-                    if (t > 0.001 && t < closestT) {
-                        vec3 Q = camPos + rayDir * t;
-                        vec3 lightDir = normalize(lightPos - Q);
-                        float diff = max(dot(normalize(cross(edge1, edge2)), lightDir), 0.0);
+                vec3 edge1 = tri.v1 - tri.v0;
+                vec3 edge2 = tri.v2 - tri.v0;
+                vec3 h = cross(rayDir, edge2);
+                float a = dot(edge1, h);
 
-                        closestT = t;
-                        hitColor = tri.color * diff * lightIntensity + vec4(tri.emission);
+                if (abs(a) > 0.0001) {
+                    float f = 1.0 / a;
+                    vec3 s = camPos - tri.v0;
+                    float u = f * dot(s, h);
+                    if (u >= 0.0 && u <= 1.0) {
+                        vec3 q = cross(s, edge1);
+                        float v = f * dot(rayDir, q);
+                        if (v >= 0.0 && u + v <= 1.0) {
+                            float t = f * dot(edge2, q);
+                            if (t > 0.001 && t < closestT) {
+                                vec3 Q = camPos + rayDir * t;
+                                vec3 lightDir = normalize(lightPos - Q);
+                                float diff = max(dot(normalize(cross(edge1, edge2)), lightDir), 0.0);
+
+                                closestT = t;
+                                hitColor = tri.color * diff * lightIntensity + vec4(tri.emission);
+                            }
+                        }
                     }
                 }
             }
