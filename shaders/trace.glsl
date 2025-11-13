@@ -2,11 +2,11 @@
 
 struct Triangle {
     vec3 v0;
-    float emission;
+    float _pad0;
     vec3 v1;
-    float reflectivity;
+    float _pad1;
     vec3 v2;
-    float translucancy;
+    float _pad2;
 };
 
 struct Sphere {
@@ -24,13 +24,13 @@ struct Mesh {
     float reflectivity;
     float transperency;
     float emmission;
-    float pad;
+    float _pad;
 };
 
 struct Hit {
     vec3 n;
     float t;
-    vec3 pad;
+    vec3 _pad;
     int m;
 };
 
@@ -51,9 +51,7 @@ layout (std140, binding = 1) uniform LightData {
     float lightIntensity;
 };
 
-layout (std140, binding = 2) uniform Mouse {
-    vec2 mousePos;
-};
+layout (std140, binding = 2) uniform Mouse { vec2 mousePos; };
 
 layout (std430, binding = 1) buffer Triangles { Triangle triangles[]; };
 
@@ -87,7 +85,7 @@ float findSphereIntersection(vec3 rayOrigin, vec3 rayDir, Sphere sph) {
     float b = 2.0 * dot(oc, rayDir);
     float c = dot(oc, oc) - sph.radius * sph.radius;
     float discriminant = b * b - 4.0 * a * c;
-    if (discriminant < 0.0) return 1e30;
+    if (discriminant < 0.0) return 1e6;
     return (-b - sqrt(discriminant)) / (2.0 * a);
 }
 
@@ -103,7 +101,7 @@ bool intersectAABB(vec3 rayOri, vec3 rayDir, vec3 minBound, vec3 maxBound) {
 }
 
 Hit findClosestIntersection(vec3 rayOri, vec3 rayDir) {
-    float closestT = 1e30;
+    float closestT = 1e6;
     int closestI;
     int closestM;
     for (int m = 0; m < meshes.length(); m++) {
@@ -161,20 +159,22 @@ Hit findClosestIntersection(vec3 rayOri, vec3 rayDir) {
 vec4 getColor(vec3 rayOri, vec3 rayDir) {
     Hit hit = findClosestIntersection(rayOri, rayDir);
     
-    if (hit.t == 1e30) return vec4(0.0);
+    if (hit.t == 1e6) return vec4(0.0);
 
     vec3 Q = rayOri + rayDir * hit.t;
     vec3 lightDir = normalize(lightPos - Q);
     float diff = max(dot(hit.n, lightDir), 0.0);
     
-    Hit shadowHit = findClosestIntersection(Q, lightDir);
-    if (shadowHit.t < length(lightPos - Q)) diff = 0.0;
+    vec3 biasQ = Q + hit.n * 1e-3;
+
+    Hit shadowHit = findClosestIntersection(biasQ, lightDir);
+    if (shadowHit.t <= length(lightPos - Q)) diff = 0.0;
     
     Mesh mesh = meshes[hit.m];
     if (mesh.reflectivity > 0.0) {
         vec3 reflectDir = reflect(rayDir, hit.n);
-        Hit reflectHit = findClosestIntersection(Q, reflectDir);
-        if (reflectHit.t < 1e30) {
+        Hit reflectHit = findClosestIntersection(biasQ, reflectDir);
+        if (reflectHit.t < 1e6) {
             vec3 c = mix(mesh.color, meshes[reflectHit.m].color, mesh.reflectivity);
             return vec4(c * diff * lightIntensity, 1.0);
         }
