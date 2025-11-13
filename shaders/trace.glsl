@@ -1,12 +1,14 @@
 #version 430 core
 
+const float EPSILON = 1e-3;
+
 struct Triangle {
     vec3 v0;
-    float _pad0;
+    float nx;
     vec3 v1;
-    float _pad1;
+    float ny;
     vec3 v2;
-    float _pad2;
+    float nz;
 };
 
 struct Sphere {
@@ -65,7 +67,7 @@ float findTriangleIntersection(vec3 rayOrigin, vec3 rayDir, Triangle tri) {
     vec3 h = cross(rayDir, edge2);
     float a = dot(edge1, h);
 
-    if (abs(a) < 1e-6) return -1.0;
+    if (abs(a) < EPSILON) return -1.0;
 
     float f = 1.0 / a;
     vec3 s = rayOrigin - tri.v0;
@@ -75,8 +77,8 @@ float findTriangleIntersection(vec3 rayOrigin, vec3 rayDir, Triangle tri) {
     vec3 q = cross(s, edge1);
     float v = f * dot(rayDir, q);
     if (v < 0.0 || u + v > 1.0) return -1.0;
-
-    return f * dot(edge2, q);
+    float t = f * dot(edge2, q);
+    return (t > EPSILON) ? t : -1.0;
 }
 
 float findSphereIntersection(vec3 rayOrigin, vec3 rayDir, Sphere sph) {
@@ -142,9 +144,7 @@ Hit findClosestIntersection(vec3 rayOri, vec3 rayDir) {
     switch (meshes[closestM].type) {
         case 0:
             Triangle tri = triangles[closestI];
-            vec3 edge1 = tri.v1 - tri.v0;
-            vec3 edge2 = tri.v2 - tri.v0;
-            hit.n = -normalize(cross(edge1, edge2));
+            hit.n = vec3(tri.nx, tri.ny, tri.nz);
             break;
         case 1:
             hit.n = normalize((rayOri + rayDir * closestT) - spheres[closestI].center);  
@@ -172,26 +172,18 @@ vec4 getColor(vec3 rayOri, vec3 rayDir) {
     
     Mesh mesh = meshes[hit.m];
     if (mesh.reflectivity > 0.0) {
-        //vec3 reflectDir = reflect(rayDir, hit.n);
-        //Hit reflectHit = findClosestIntersection(biasQ, reflectDir);
-        //if (reflectHit.t < 1e6) {
-        //    vec3 c = mix(mesh.color, meshes[reflectHit.m].color, mesh.reflectivity);
-        //    return vec4(c * diff * lightIntensity, 1.0);
-        //}
         const int MAX_REFLECTIONS = 3;
-        int bounces = 0;
-        vec3 currOri = biasQ;
-        vec3 currDir = reflect(rayDir, hit.n);
         Mesh currMesh = mesh;
+        vec3 currOri = biasQ;
         vec3 accumColor = vec3(0.0);
+        vec3 currDir = reflect(rayDir, hit.n);
         for (int bounce = 0; bounce < MAX_REFLECTIONS; bounce++) {
             Hit reflectHit = findClosestIntersection(currOri, currDir);
             if (reflectHit.t == 1e6) break;
             currMesh = meshes[reflectHit.m];
-            accumColor += currMesh.color * pow(currMesh.reflectivity, float(bounce + 1));
+            accumColor += currMesh.color * pow(currMesh.reflectivity, bounce + 2);
             currOri = currOri + currDir * reflectHit.t + reflectHit.n * 1e-3;
             currDir = reflect(currDir, reflectHit.n);
-            bounces++;
         }
 
         vec3 finalColor = mix(mesh.color, accumColor, mesh.reflectivity);
@@ -210,7 +202,7 @@ void main() {
     vec2 uv = (vec2(pixel) / vec2(size)) * 2.0 - 1.0;
     uv.x *= aspect;
 
-    vec3 rayDir = normalize(camForward + uv.x * tan(fov / 2.0) * vec3(1.0, 0.0, 0.0) + uv.y * tan(fov / 2.0) * vec3(0.0, 1.0, 0.0));
+    vec3 rayDir = normalize(camForward + uv.x * tan(fov / 2.0) * vec3(1.0, 0.0, 0.0) + uv.y * tan(fov / 2.0) * camUp);
 
     vec4 color = getColor(camPos, rayDir);
 

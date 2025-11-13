@@ -194,28 +194,28 @@ void createTriangles() {
     const float s = 5.0f;
     const float z = 0.0f;
     vector<Triangle> floor = {
-        {{-s, z, -s}, 0.0f, { s, z, -s}, 0.0f, { s, z,  s}, 0.0f},
-        {{ s, z,  s}, 0.0f, {-s, z,  s}, 0.0f, {-s, z, -s}, 0.0f}
+        {{-s, z, -s}, 0.0f, { s, z, -s}, 1.0f, { s, z,  s}, 0.0f},
+        {{ s, z,  s}, 0.0f, {-s, z,  s}, 1.0f, {-s, z, -s}, 0.0f}
     };
     
     vector<Triangle> ceiling = {
-        {{ s, s, -s}, 0.0f, {-s, s,  s}, 0.0f, { s, s,  s}, 0.0f},
-        {{ s, s, -s}, 0.0f, {-s, s, -s}, 0.0f, {-s, s,  s}, 0.0f}
+        {{ s, s, -s}, 0.0f, {-s, s,  s}, -1.0f, { s, s,  s}, 0.0f},
+        {{ s, s, -s}, 0.0f, {-s, s, -s}, -1.0f, {-s, s,  s}, 0.0f}
     };
     
     vector<Triangle> backWall = {
-        {{ s, z, -s}, 0.0f, {-s, z, -s}, 0.0f, {-s, s, -s}, 0.0f},
-        {{ s, s, -s}, 0.0f, { s, z, -s}, 0.0f, {-s, s, -s}, 0.0f}
+        {{ s, z, -s}, 0.0f, {-s, z, -s}, 0.0f, {-s, s, -s}, 1.0f},
+        {{ s, s, -s}, 0.0f, { s, z, -s}, 0.0f, {-s, s, -s}, 1.0f}
     };
     
     vector<Triangle> rightWall = {
-        {{ s, z, -s}, 0.0f, { s, s, -s}, 0.0f, { s, z,  s}, 0.0f},
-        {{ s, z,  s}, 0.0f, { s, s, -s}, 0.0f, { s, s,  s}, 0.0f}
+        {{ s, z, -s}, -1.0f, { s, s, -s}, 0.0f, { s, z,  s}, 0.0f},
+        {{ s, z,  s}, -1.0f, { s, s, -s}, 0.0f, { s, s,  s}, 0.0f}
     };
     
     vector<Triangle> leftWall = {
-        {{-s, z,  s}, 0.0f, {-s, s, -s}, 0.0f, {-s, z, -s}, 0.0f},
-        {{-s, z,  s}, 0.0f, {-s, s,  s}, 0.0f, {-s, s, -s}, 0.0f}
+        {{-s, z,  s}, 1.0f, {-s, s, -s}, 0.0f, {-s, z, -s}, 0.0f},
+        {{-s, z,  s}, 1.0f, {-s, s,  s}, 0.0f, {-s, s, -s}, 0.0f}
     };
     
     vector<Triangle> sphereTriangles = createSphereTriangles(
