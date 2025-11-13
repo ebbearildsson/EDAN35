@@ -7,14 +7,31 @@ struct Triangle {
     float reflectivity;
     vec3 v2;
     float translucancy;
-    vec4 color;
+};
+
+struct Sphere {
+    vec3 center;
+    float radius;
 };
 
 struct Mesh {
     vec3 lowerLeftBack;
-    int triangleOffset;
+    int offset;
     vec3 upperRightFront;
-    int triangleCount;
+    int size;
+    vec3 color;
+    int type; // 0 = triangle mesh, 1 = sphere mesh
+    float reflectivity;
+    float transperency;
+    float emmission;
+    float pad;
+};
+
+struct Hit {
+    vec3 n;
+    float t;
+    vec3 pad;
+    int m;
 };
 
 layout (local_size_x = 8, local_size_y = 8) in;
@@ -34,17 +51,23 @@ layout (std140, binding = 1) uniform LightData {
     float lightIntensity;
 };
 
+layout (std140, binding = 2) uniform Mouse {
+    vec2 mousePos;
+};
+
 layout (std430, binding = 1) buffer Triangles { Triangle triangles[]; };
 
 layout (std430, binding = 2) buffer Meshes { Mesh meshes[]; };
 
-float findIntersection(vec3 rayOrigin, vec3 rayDir, Triangle tri) {
+layout (std430, binding = 3) buffer Spheres { Sphere spheres[]; };
+
+float findTriangleIntersection(vec3 rayOrigin, vec3 rayDir, Triangle tri) {
     vec3 edge1 = tri.v1 - tri.v0;
     vec3 edge2 = tri.v2 - tri.v0;
     vec3 h = cross(rayDir, edge2);
     float a = dot(edge1, h);
 
-    if (abs(a) < 0.0001) return -1.0;
+    if (abs(a) < 1e-6) return -1.0;
 
     float f = 1.0 / a;
     vec3 s = rayOrigin - tri.v0;
@@ -58,6 +81,111 @@ float findIntersection(vec3 rayOrigin, vec3 rayDir, Triangle tri) {
     return f * dot(edge2, q);
 }
 
+float findSphereIntersection(vec3 rayOrigin, vec3 rayDir, Sphere sph) {
+    vec3 oc = rayOrigin - sph.center;
+    float a = dot(rayDir, rayDir);
+    float b = 2.0 * dot(oc, rayDir);
+    float c = dot(oc, oc) - sph.radius * sph.radius;
+    float discriminant = b * b - 4.0 * a * c;
+    if (discriminant < 0.0) return 1e30;
+    return (-b - sqrt(discriminant)) / (2.0 * a);
+}
+
+bool intersectAABB(vec3 rayOri, vec3 rayDir, vec3 minBound, vec3 maxBound) {
+    vec3 tlow = (minBound - rayOri) / rayDir;
+    vec3 thigh = (maxBound - rayOri) / rayDir;
+    vec3 tmin = min(tlow, thigh);
+    vec3 tmax = max(tlow, thigh);
+    float tclose = max(max(tmin.x, tmin.y), tmin.z);
+    float tfar = min(min(tmax.x, tmax.y), tmax.z);
+
+    return tfar >= tclose && tfar >= 0.0;
+}
+
+Hit findClosestIntersection(vec3 rayOri, vec3 rayDir) {
+    float closestT = 1e30;
+    int closestI;
+    int closestM;
+    for (int m = 0; m < meshes.length(); m++) {
+        Mesh mesh = meshes[m];
+        bool intersect = intersectAABB(rayOri, rayDir, mesh.lowerLeftBack, mesh.upperRightFront);
+        if (!intersect) continue;
+
+        float t;
+        switch (mesh.type) {
+            case 0: // Triangle mesh
+                for (int i = mesh.offset; i <= mesh.offset + mesh.size; i++) {
+                    t = findTriangleIntersection(rayOri, rayDir, triangles[i]);
+                    if (t > 0.0 && t < closestT) {
+                        closestT = t;
+                        closestI = i;
+                        closestM = m;
+                    }
+                }
+                break;
+            case 1: // Sphere mesh
+                for (int i = mesh.offset; i <= mesh.offset + mesh.size; i++) {
+                    t = findSphereIntersection(rayOri, rayDir, spheres[i]);
+                    if (t > 0.0 && t < closestT) {
+                        closestT = t;
+                        closestI = i;
+                        closestM = m;
+                    }
+                }
+                break;
+            default:
+                continue;
+        }
+    }
+
+    Hit hit;
+    hit.t = closestT;
+    hit.m = closestM;
+    switch (meshes[closestM].type) {
+        case 0:
+            Triangle tri = triangles[closestI];
+            vec3 edge1 = tri.v1 - tri.v0;
+            vec3 edge2 = tri.v2 - tri.v0;
+            hit.n = -normalize(cross(edge1, edge2));
+            break;
+        case 1:
+            hit.n = normalize((rayOri + rayDir * closestT) - spheres[closestI].center);  
+            break;
+        default:
+            break;
+    }
+
+    return hit;
+}
+
+vec4 getColor(vec3 rayOri, vec3 rayDir) {
+    Hit hit = findClosestIntersection(rayOri, rayDir);
+    
+    if (hit.t == 1e30) return vec4(0.0);
+
+    vec3 Q = rayOri + rayDir * hit.t;
+    vec3 lightDir = normalize(lightPos - Q);
+    float diff = max(dot(hit.n, lightDir), 0.0);
+    
+    Hit shadowHit = findClosestIntersection(Q, lightDir);
+    if (shadowHit.t < length(lightPos - Q)) diff = 0.0;
+    
+    Mesh mesh = meshes[hit.m];
+    if (mesh.reflectivity > 0.0) {
+        vec3 reflectDir = reflect(rayDir, hit.n);
+        Hit reflectHit = findClosestIntersection(Q, reflectDir);
+        if (reflectHit.t < 1e30) {
+            vec3 c = mix(mesh.color, meshes[reflectHit.m].color, mesh.reflectivity);
+            return vec4(c * diff * lightIntensity, 1.0);
+        }
+    }
+    
+    //return vec4(mesh.color, 1.0);
+    return vec4(mesh.color * diff * lightIntensity, 1.0);
+    //return vec4(abs(hit.n), 1.0);
+    //return vec4(((mesh.type + 1.0) / 2.0) * vec3(1.0), 1.0);
+}
+
 void main() {
     ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
     ivec2 size = imageSize(imgOutput);
@@ -66,39 +194,7 @@ void main() {
 
     vec3 rayDir = normalize(camForward + uv.x * tan(fov / 2.0) * vec3(1.0, 0.0, 0.0) + uv.y * tan(fov / 2.0) * vec3(0.0, 1.0, 0.0));
 
-    float closestT = 1e30;
-    Triangle closestTri;
-    Mesh closestMesh;
-    for (int m = 0; m < meshes.length(); m++) {
-        Mesh mesh = meshes[m];
-        vec3 tlow = (mesh.lowerLeftBack - camPos) / rayDir;
-        vec3 thigh = (mesh.upperRightFront - camPos) / rayDir;
-        vec3 tmin = min(tlow, thigh);
-        vec3 tmax = max(tlow, thigh);
-        float tclose = max(max(tmin.x, tmin.y), tmin.z);
-        float tfar = min(min(tmax.x, tmax.y), tmax.z);
+    vec4 color = getColor(camPos, rayDir);
 
-        if (tclose > tfar) continue;
-        for (int i = mesh.triangleOffset; i <= mesh.triangleOffset + mesh.triangleCount; i++) {
-            Triangle tri = triangles[i];
-            float t = findIntersection(camPos, rayDir, tri);
-            if (t > 0.00001 && t < closestT) {
-                closestT = t;
-                closestTri = tri;
-                closestMesh = mesh;
-            }
-        }
-    }
-    if (closestT == 1e30) {
-        imageStore(imgOutput, ivec2(gl_GlobalInvocationID.xy), vec4(0.0));
-        return;
-    }
-    vec3 edge1 = closestTri.v1 - closestTri.v0;
-    vec3 edge2 = closestTri.v2 - closestTri.v0;
-    vec3 Q = camPos + rayDir * closestT;
-    vec3 lightDir = normalize(lightPos - Q);
-    float diff = max(dot(normalize(cross(edge1, edge2)), lightDir), 0.0);
-    vec4 hitColor = closestTri.color * diff * lightIntensity + vec4(closestTri.emission);
-
-    imageStore(imgOutput, ivec2(gl_GlobalInvocationID.xy), hitColor);
+    imageStore(imgOutput, ivec2(gl_GlobalInvocationID.xy), color);
 }
