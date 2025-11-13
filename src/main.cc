@@ -136,8 +136,10 @@ bool processInput(GLFWwindow* window, Camera* cam, float deltaTime) {
     return moved;
 }
 
-void createLights(GLuint &lightUBO) {
+void createLights() {
     Light light = { vec3(0.0f, 2.5f, 2.5f), 1.0f};
+
+    GLuint lightUBO;
     glGenBuffers(1, &lightUBO);
     glBindBuffer(GL_UNIFORM_BUFFER, lightUBO);
     glBufferData(GL_UNIFORM_BUFFER, sizeof(Light), &light, GL_DYNAMIC_DRAW);
@@ -188,7 +190,7 @@ Mesh getSphereMesh(Sphere& sphere, int offset, vec3 color, float reflectivity = 
     return { minBound, offset, maxBound, 1, color, 1, reflectivity, translucency, emission, 0.0f };
 }
 
-void createTriangles(GLuint &triangleSSBO, GLuint &meshSSBO) {
+void createTriangles() {
     const float s = 5.0f;
     const float z = 0.0f;
     vector<Triangle> floor = {
@@ -220,42 +222,54 @@ void createTriangles(GLuint &triangleSSBO, GLuint &meshSSBO) {
         vec3(0.0f, 1.0f, 0.0f), 0.5f, 32, 32, 0.0f, 0.5f, 0.0f
     );
 
-    Mesh floorMesh = getTriangleMesh(floor, 0, vec3(1.0f, 1.0f, 1.0f));
-    Mesh ceilingMesh = getTriangleMesh(ceiling, floorMesh.offset + floorMesh.size, vec3(1.0f, 1.0f, 1.0f));
-    Mesh backWallMesh = getTriangleMesh(backWall, ceilingMesh.offset + ceilingMesh.size, vec3(1.0f, 1.0f, 1.0f));
-    Mesh rightWallMesh = getTriangleMesh(rightWall, backWallMesh.offset + backWallMesh.size, vec3(0.2f, 1.0f, 0.2f), 0.5f);
-    Mesh leftWallMesh = getTriangleMesh(leftWall, rightWallMesh.offset + rightWallMesh.size, vec3(0.2f, 0.2f, 1.0f), 0.5f);
-    Mesh sphereMesh = getTriangleMesh(sphereTriangles, leftWallMesh.offset + leftWallMesh.size, vec3(1.0f, 0.2f, 0.2f));
-
     vector<Triangle> triangles;
     triangles.insert(triangles.end(), floor.begin(), floor.end());
     triangles.insert(triangles.end(), ceiling.begin(), ceiling.end());
     triangles.insert(triangles.end(), backWall.begin(), backWall.end());
     triangles.insert(triangles.end(), rightWall.begin(), rightWall.end());
     triangles.insert(triangles.end(), leftWall.begin(), leftWall.end());
-    triangles.insert(triangles.end(), sphereTriangles.begin(), sphereTriangles.end());
+    //triangles.insert(triangles.end(), sphereTriangles.begin(), sphereTriangles.end());
 
+    GLuint triangleSSBO, sphereSSBO, meshSSBO;
     glGenBuffers(1, &triangleSSBO);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, triangleSSBO);
     glBufferData(GL_SHADER_STORAGE_BUFFER, triangles.size() * sizeof(Triangle), triangles.data(), GL_DYNAMIC_DRAW);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, triangleSSBO); // binding = 1 for SSBO
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 
-    GLuint sphereSSBO;
+    Sphere sphere0 = { vec3(1.0f, 1.0f, 0.0f), 0.5f };
+    Sphere sphere1 = { vec3(-1.0f, 0.5f, -1.0f), 0.5f };
+    vector<Sphere> spheres = { sphere0, sphere1 };
+
     glGenBuffers(1, &sphereSSBO);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, sphereSSBO);
-    Sphere sphere = { vec3(1.0f, 1.0f, 0.0f), 0.5f };
-    glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(Sphere), &sphere, GL_DYNAMIC_DRAW);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, spheres.size() * sizeof(Sphere), spheres.data(), GL_DYNAMIC_DRAW);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, sphereSSBO); // binding = 3 for SSBO
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 
-    Mesh realSphereMesh = getSphereMesh(sphere, 0, vec3(1.0f, 0.2f, 0.2f), 0.8f, 0.0f, 0.0f);
+    Mesh floorMesh = getTriangleMesh(floor, 0, vec3(1.0f, 1.0f, 1.0f));
+    Mesh ceilingMesh = getTriangleMesh(ceiling, floorMesh.offset + floorMesh.size, vec3(1.0f, 1.0f, 1.0f));
+    Mesh backWallMesh = getTriangleMesh(backWall, ceilingMesh.offset + ceilingMesh.size, vec3(1.0f, 1.0f, 1.0f), 1.0f);
+    Mesh rightWallMesh = getTriangleMesh(rightWall, backWallMesh.offset + backWallMesh.size, vec3(0.2f, 1.0f, 0.2f), 0.5f);
+    Mesh leftWallMesh = getTriangleMesh(leftWall, rightWallMesh.offset + rightWallMesh.size, vec3(0.2f, 0.2f, 1.0f), 0.5f);
+    //Mesh sphereMesh = getTriangleMesh(sphereTriangles, leftWallMesh.offset + leftWallMesh.size, vec3(1.0f, 0.2f, 0.2f));
+    Mesh realSphereMesh = getSphereMesh(sphere0, 0, vec3(1.0f, 0.2f, 0.2f), 0.8f, 0.0f, 0.0f);
+    Mesh realSphereMesh2 = getSphereMesh(sphere1, 1, vec3(1.0f, 1.0f, 0.2f), 0.3f, 0.0f, 0.0f);
 
-    Mesh meshes[] = { floorMesh, ceilingMesh, backWallMesh, rightWallMesh, leftWallMesh, sphereMesh, realSphereMesh };
-    int meshCount = sizeof(meshes) / sizeof(Mesh);
+    vector<Mesh> meshes = {
+        floorMesh,
+        ceilingMesh,
+        backWallMesh,
+        rightWallMesh,
+        leftWallMesh,
+        //sphereMesh,
+        realSphereMesh,
+        realSphereMesh2
+    };
+
     glGenBuffers(1, &meshSSBO);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, meshSSBO);
-    glBufferData(GL_SHADER_STORAGE_BUFFER, meshCount * sizeof(Mesh), meshes, GL_DYNAMIC_DRAW);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, meshes.size() * sizeof(Mesh), meshes.data(), GL_DYNAMIC_DRAW);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, meshSSBO); // binding = 2 for SSBO
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 }
@@ -322,14 +336,11 @@ int main() {
 
     GLuint quadProgram = createQuadProgram("../shaders/quad.vert", "../shaders/quad.frag");
 
-    GLuint triangleSSBO, meshSSBO, cameraUBO, lightUBO;
-
-    createTriangles(triangleSSBO, meshSSBO);
-
+    GLuint cameraUBO;
     Camera cam;
     createCamera(cameraUBO, cam);
-
-    createLights(lightUBO);
+    createTriangles();
+    createLights();
 
     vec2 mousePos = vec2(0.0f);
     GLuint mouseUBO;

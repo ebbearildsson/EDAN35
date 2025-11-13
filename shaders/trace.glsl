@@ -168,16 +168,34 @@ vec4 getColor(vec3 rayOri, vec3 rayDir) {
     vec3 biasQ = Q + hit.n * 1e-3;
 
     Hit shadowHit = findClosestIntersection(biasQ, lightDir);
-    if (shadowHit.t <= length(lightPos - Q)) diff = 0.0;
+    if (shadowHit.t <= length(lightPos - Q)) return vec4(0.0);
     
     Mesh mesh = meshes[hit.m];
     if (mesh.reflectivity > 0.0) {
-        vec3 reflectDir = reflect(rayDir, hit.n);
-        Hit reflectHit = findClosestIntersection(biasQ, reflectDir);
-        if (reflectHit.t < 1e6) {
-            vec3 c = mix(mesh.color, meshes[reflectHit.m].color, mesh.reflectivity);
-            return vec4(c * diff * lightIntensity, 1.0);
+        //vec3 reflectDir = reflect(rayDir, hit.n);
+        //Hit reflectHit = findClosestIntersection(biasQ, reflectDir);
+        //if (reflectHit.t < 1e6) {
+        //    vec3 c = mix(mesh.color, meshes[reflectHit.m].color, mesh.reflectivity);
+        //    return vec4(c * diff * lightIntensity, 1.0);
+        //}
+        const int MAX_REFLECTIONS = 3;
+        int bounces = 0;
+        vec3 currOri = biasQ;
+        vec3 currDir = reflect(rayDir, hit.n);
+        Mesh currMesh = mesh;
+        vec3 accumColor = vec3(0.0);
+        for (int bounce = 0; bounce < MAX_REFLECTIONS; bounce++) {
+            Hit reflectHit = findClosestIntersection(currOri, currDir);
+            if (reflectHit.t == 1e6) break;
+            currMesh = meshes[reflectHit.m];
+            accumColor += currMesh.color * pow(currMesh.reflectivity, float(bounce + 1));
+            currOri = currOri + currDir * reflectHit.t + reflectHit.n * 1e-3;
+            currDir = reflect(currDir, reflectHit.n);
+            bounces++;
         }
+
+        vec3 finalColor = mix(mesh.color, accumColor, mesh.reflectivity);
+        return vec4(finalColor * diff * lightIntensity, 1.0);
     }
     
     //return vec4(mesh.color, 1.0);
