@@ -25,16 +25,21 @@ struct Camera {
 
 struct Triangle {
     vec3 v0;
-    float emission;
+    float nx;
     vec3 v1;
-    float reflectivity;
+    float ny;
     vec3 v2;
-    float translucancy;
+    float nz;
 };
 
 struct Sphere {
     vec3 center;
     float radius;
+};
+
+struct GeoNode {
+    vec3 vertex;
+    float padOrRadius;
 };
 
 struct Mesh {
@@ -230,7 +235,7 @@ void createTriangles() {
     triangles.insert(triangles.end(), leftWall.begin(), leftWall.end());
     //triangles.insert(triangles.end(), sphereTriangles.begin(), sphereTriangles.end());
 
-    GLuint triangleSSBO, sphereSSBO, meshSSBO;
+    GLuint triangleSSBO, sphereSSBO, meshSSBO, geometrySSBO;
     glGenBuffers(1, &triangleSSBO);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, triangleSSBO);
     glBufferData(GL_SHADER_STORAGE_BUFFER, triangles.size() * sizeof(Triangle), triangles.data(), GL_DYNAMIC_DRAW);
@@ -246,6 +251,23 @@ void createTriangles() {
     glBufferData(GL_SHADER_STORAGE_BUFFER, spheres.size() * sizeof(Sphere), spheres.data(), GL_DYNAMIC_DRAW);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, sphereSSBO); // binding = 3 for SSBO
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+
+    vector<GeoNode> geometry;
+    for (const auto& tri : triangles) {
+        geometry.push_back({ tri.v0, tri.nx });
+        geometry.push_back({ tri.v1, tri.ny });
+        geometry.push_back({ tri.v2, tri.nz });
+    }
+    for (const auto& sph : spheres) {
+        geometry.push_back({ sph.center, sph.radius });
+    }
+
+    glGenBuffers(1, &geometrySSBO);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, geometrySSBO);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, geometry.size() * sizeof(GeoNode), geometry.data(), GL_DYNAMIC_DRAW);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, geometrySSBO); // binding = 4 for SSBO
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+
 
     Mesh floorMesh = getTriangleMesh(floor, 0, vec3(1.0f, 1.0f, 1.0f));
     Mesh ceilingMesh = getTriangleMesh(ceiling, floorMesh.offset + floorMesh.size, vec3(1.0f, 1.0f, 1.0f));

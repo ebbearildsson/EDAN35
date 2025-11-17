@@ -1,6 +1,7 @@
 #version 430 core
 
 const float EPSILON = 1e-3;
+const float MAXILON = 1e6;
 
 struct Triangle {
     vec3 v0;
@@ -13,6 +14,11 @@ struct Triangle {
 
 struct Sphere {
     vec3 center;
+    float radius;
+};
+
+struct GeoNode {
+    vec3 vertex;
     float radius;
 };
 
@@ -61,6 +67,8 @@ layout (std430, binding = 2) buffer Meshes { Mesh meshes[]; };
 
 layout (std430, binding = 3) buffer Spheres { Sphere spheres[]; };
 
+layout (std430, binding = 4) buffer Geometry { GeoNode geometry[]; };
+
 float findTriangleIntersection(vec3 rayOrigin, vec3 rayDir, Triangle tri) {
     vec3 edge1 = tri.v1 - tri.v0;
     vec3 edge2 = tri.v2 - tri.v0;
@@ -87,7 +95,7 @@ float findSphereIntersection(vec3 rayOrigin, vec3 rayDir, Sphere sph) {
     float b = 2.0 * dot(oc, rayDir);
     float c = dot(oc, oc) - sph.radius * sph.radius;
     float discriminant = b * b - 4.0 * a * c;
-    if (discriminant < 0.0) return 1e6;
+    if (discriminant < 0.0) return MAXILON;
     return (-b - sqrt(discriminant)) / (2.0 * a);
 }
 
@@ -103,7 +111,7 @@ bool intersectAABB(vec3 rayOri, vec3 rayDir, vec3 minBound, vec3 maxBound) {
 }
 
 Hit findClosestIntersection(vec3 rayOri, vec3 rayDir) {
-    float closestT = 1e6;
+    float closestT = MAXILON;
     int closestI;
     int closestM;
     for (int m = 0; m < meshes.length(); m++) {
@@ -159,7 +167,7 @@ Hit findClosestIntersection(vec3 rayOri, vec3 rayDir) {
 vec4 getColor(vec3 rayOri, vec3 rayDir) {
     Hit hit = findClosestIntersection(rayOri, rayDir);
     
-    if (hit.t == 1e6) return vec4(0.0);
+    if (hit.t == MAXILON) return vec4(0.0);
 
     vec3 Q = rayOri + rayDir * hit.t;
     vec3 lightDir = normalize(lightPos - Q);
@@ -179,10 +187,15 @@ vec4 getColor(vec3 rayOri, vec3 rayDir) {
         vec3 currDir = reflect(rayDir, hit.n);
         for (int bounce = 0; bounce < MAX_REFLECTIONS; bounce++) {
             Hit reflectHit = findClosestIntersection(currOri, currDir);
-            if (reflectHit.t == 1e6) break;
+            if (reflectHit.t == MAXILON) break;
             currMesh = meshes[reflectHit.m];
-            accumColor += currMesh.color * pow(currMesh.reflectivity, bounce + 2);
+            vec3 tempColor = accumColor;
+            float currDiff = max(dot(reflectHit.n, lightDir), 0.0);
             currOri = currOri + currDir * reflectHit.t + reflectHit.n * 1e-3;
+            Hit shadowHit = findClosestIntersection(currOri, normalize(lightPos - currOri));
+            if (shadowHit.t <= length(lightPos - currOri)) currDiff = 0.0;
+            accumColor += (currMesh.color * pow(currMesh.reflectivity, bounce + 2)) * currDiff;
+            if (currMesh.reflectivity <= 0.0 || accumColor == tempColor) break;
             currDir = reflect(currDir, reflectHit.n);
         }
 
