@@ -42,6 +42,17 @@ struct GeoNode {
     float padOrRadius;
 };
 
+struct Node {
+    vec3 min;
+    int type;
+    vec3 max;
+    float _pad1;
+    int left;
+    int right;
+    int start;
+    int count;
+};
+
 struct Mesh {
     vec3 lowerLeftBack;
     int offset;
@@ -195,7 +206,46 @@ Mesh getSphereMesh(Sphere& sphere, int offset, vec3 color, float reflectivity = 
     return { minBound, offset, maxBound, 1, color, 1, reflectivity, translucency, emission, 0.0f };
 }
 
-void createTriangles() {
+vec3 getCentroidTriangle(const Triangle& tri) {
+    return (tri.v0 + tri.v1 + tri.v2) / 3.0f;
+}
+
+vector<Node> nodes;
+vector<Mesh> meshes;
+
+Node subdivide(int nodeIndex) {
+    Node node = nodes[nodeIndex];
+
+
+
+    return node;
+}
+
+void buildBVH() {
+    Node root;
+    root.left = 0;
+    root.right = 0;
+    root.start = 0;
+    root.count = 0;
+    root.min = vec3(FLT_MAX);
+    root.max = vec3(-FLT_MAX);
+    for (int i = 0; i < meshes.size(); ++i) {
+        root.min = glm::min(root.min, meshes[i].lowerLeftBack);
+        root.max = glm::max(root.max, meshes[i].upperRightFront);
+    }
+    nodes.push_back(root);
+    subdivide(0);
+
+    GLuint bvhSSBO;
+    glGenBuffers(1, &bvhSSBO);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, bvhSSBO);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, nodes.size() * sizeof(Node), nodes.data(), GL_DYNAMIC_DRAW);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 5, bvhSSBO); // binding = 5 for SSBO
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+}
+
+void createGeometry() {
+    GLuint triangleSSBO, sphereSSBO, meshSSBO, geometrySSBO, bvhSSBO;
     const float s = 5.0f;
     const float z = 0.0f;
     vector<Triangle> floor = {
@@ -235,7 +285,6 @@ void createTriangles() {
     triangles.insert(triangles.end(), leftWall.begin(), leftWall.end());
     //triangles.insert(triangles.end(), sphereTriangles.begin(), sphereTriangles.end());
 
-    GLuint triangleSSBO, sphereSSBO, meshSSBO, geometrySSBO;
     glGenBuffers(1, &triangleSSBO);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, triangleSSBO);
     glBufferData(GL_SHADER_STORAGE_BUFFER, triangles.size() * sizeof(Triangle), triangles.data(), GL_DYNAMIC_DRAW);
@@ -268,7 +317,6 @@ void createTriangles() {
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, geometrySSBO); // binding = 4 for SSBO
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 
-
     Mesh floorMesh = getTriangleMesh(floor, 0, vec3(1.0f, 1.0f, 1.0f));
     Mesh ceilingMesh = getTriangleMesh(ceiling, floorMesh.offset + floorMesh.size, vec3(1.0f, 1.0f, 1.0f));
     Mesh backWallMesh = getTriangleMesh(backWall, ceilingMesh.offset + ceilingMesh.size, vec3(1.0f, 1.0f, 1.0f), 1.0f);
@@ -278,7 +326,7 @@ void createTriangles() {
     Mesh realSphereMesh = getSphereMesh(sphere0, 0, vec3(1.0f, 0.2f, 0.2f), 0.8f, 0.0f, 0.0f);
     Mesh realSphereMesh2 = getSphereMesh(sphere1, 1, vec3(1.0f, 1.0f, 0.2f), 0.3f, 0.0f, 0.0f);
 
-    vector<Mesh> meshes = {
+    meshes = {
         floorMesh,
         ceilingMesh,
         backWallMesh,
@@ -294,7 +342,10 @@ void createTriangles() {
     glBufferData(GL_SHADER_STORAGE_BUFFER, meshes.size() * sizeof(Mesh), meshes.data(), GL_DYNAMIC_DRAW);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, meshSSBO); // binding = 2 for SSBO
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+
+    buildBVH();
 }
+
 
 void createCamera(GLuint &cameraUBO, Camera &cam) {
     cam = {
@@ -361,7 +412,7 @@ int main() {
     GLuint cameraUBO;
     Camera cam;
     createCamera(cameraUBO, cam);
-    createTriangles();
+    createGeometry();
     createLights();
 
     vec2 mousePos = vec2(0.0f);

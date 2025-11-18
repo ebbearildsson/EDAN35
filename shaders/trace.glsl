@@ -22,6 +22,17 @@ struct GeoNode {
     float radius;
 };
 
+struct Node {
+    vec3 min;
+    float _pad0;
+    vec3 max;
+    float _pad1;
+    int left;
+    int right;
+    int start;
+    int count;
+};
+
 struct Mesh {
     vec3 lowerLeftBack;
     int offset;
@@ -69,24 +80,26 @@ layout (std430, binding = 3) buffer Spheres { Sphere spheres[]; };
 
 layout (std430, binding = 4) buffer Geometry { GeoNode geometry[]; };
 
+layout (std430, binding = 5) buffer BVH { Node nodes[]; };
+
 float findTriangleIntersection(vec3 rayOrigin, vec3 rayDir, Triangle tri) {
     vec3 edge1 = tri.v1 - tri.v0;
     vec3 edge2 = tri.v2 - tri.v0;
     vec3 h = cross(rayDir, edge2);
     float a = dot(edge1, h);
 
-    if (abs(a) < EPSILON) return -1.0;
+    if (abs(a) < EPSILON) return MAXILON;
 
     float f = 1.0 / a;
     vec3 s = rayOrigin - tri.v0;
     float u = f * dot(s, h);
-    if (u < 0.0 || u > 1.0) return -1.0;
+    if (u < 0.0 || u > 1.0) return MAXILON;
 
     vec3 q = cross(s, edge1);
     float v = f * dot(rayDir, q);
-    if (v < 0.0 || u + v > 1.0) return -1.0;
+    if (v < 0.0 || u + v > 1.0) return MAXILON;
     float t = f * dot(edge2, q);
-    return (t > EPSILON) ? t : -1.0;
+    return (t > EPSILON) ? t : MAXILON;
 }
 
 float findSphereIntersection(vec3 rayOrigin, vec3 rayDir, Sphere sph) {
@@ -106,8 +119,12 @@ bool intersectAABB(vec3 rayOri, vec3 rayDir, vec3 minBound, vec3 maxBound) {
     vec3 tmax = max(tlow, thigh);
     float tclose = max(max(tmin.x, tmin.y), tmin.z);
     float tfar = min(min(tmax.x, tmax.y), tmax.z);
-
     return tfar >= tclose && tfar >= 0.0;
+}
+
+float traverseBVH(vec3 rayOri, vec3 rayDir) {
+    // BVH traversal logic would go here
+    return MAXILON;
 }
 
 Hit findClosestIntersection(vec3 rayOri, vec3 rayDir) {
