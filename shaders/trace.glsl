@@ -17,11 +17,6 @@ struct Sphere {
     float radius;
 };
 
-struct GeoNode {
-    vec3 vertex;
-    float radius;
-};
-
 struct Node {
     vec3 min;
     float _pad0;
@@ -77,8 +72,6 @@ layout (std430, binding = 1) buffer Triangles { Triangle triangles[]; };
 layout (std430, binding = 2) buffer Meshes { Mesh meshes[]; };
 
 layout (std430, binding = 3) buffer Spheres { Sphere spheres[]; };
-
-layout (std430, binding = 4) buffer Geometry { GeoNode geometry[]; };
 
 layout (std430, binding = 5) buffer BVH { Node nodes[]; };
 
@@ -149,13 +142,11 @@ Hit findClosestIntersection(vec3 rayOri, vec3 rayDir) {
                 }
                 break;
             case 1: // Sphere mesh
-                for (int i = mesh.offset; i <= mesh.offset + mesh.size; i++) {
-                    t = findSphereIntersection(rayOri, rayDir, spheres[i]);
-                    if (t > 0.0 && t < closestT) {
-                        closestT = t;
-                        closestI = i;
-                        closestM = m;
-                    }
+                t = findSphereIntersection(rayOri, rayDir, spheres[mesh.offset]);
+                if (t > 0.0 && t < closestT) {
+                    closestT = t;
+                    closestI = mesh.offset;
+                    closestM = m;
                 }
                 break;
             default:

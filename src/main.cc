@@ -3,6 +3,7 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/constants.hpp>
 #include <iostream>
+#include <algorithm>
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -23,7 +24,21 @@ struct Camera {
     float _pad;
 };
 
+struct bvhNode { // should be center, type and index in respective array
+    vec3 center;
+    int type;
+    int index;
+};
+
 struct Triangle {
+    vec3 v0;
+    vec3 v1;
+    vec3 v2;
+    vec3 n;
+    vec3 center;
+};
+
+struct GPUTriangle {
     vec3 v0;
     float nx;
     vec3 v1;
@@ -35,11 +50,6 @@ struct Triangle {
 struct Sphere {
     vec3 center;
     float radius;
-};
-
-struct GeoNode {
-    vec3 vertex;
-    float padOrRadius;
 };
 
 struct Node {
@@ -63,7 +73,7 @@ struct Mesh {
     float reflectivity;
     float transperency;
     float emmission;
-    float pad;
+    float _pad;
 };
 
 struct Light {
@@ -163,31 +173,6 @@ void createLights() {
     glBindBuffer(GL_UNIFORM_BUFFER, 0);
 }
 
-vector<Triangle> createSphereTriangles(vec3 center, float radius, int longitude_split_count, int latitude_split_count, 
-        float emission, float reflectivity, float translucency) {
-    vector<Triangle> triangles;
-    
-    for (int lat = 0; lat < latitude_split_count; ++lat) {
-        float theta1 = glm::pi<float>() * lat / latitude_split_count;
-        float theta2 = glm::pi<float>() * (lat + 1) / latitude_split_count;
-
-        for (int lon = 0; lon < longitude_split_count; ++lon) {
-            float phi1 = 2.0f * glm::pi<float>() * lon / longitude_split_count;
-            float phi2 = 2.0f * glm::pi<float>() * (lon + 1) / longitude_split_count;
-
-            vec3 v0 = center + radius * vec3(sin(theta1) * cos(phi1), cos(theta1), sin(theta1) * sin(phi1));
-            vec3 v1 = center + radius * vec3(sin(theta2) * cos(phi1), cos(theta2), sin(theta2) * sin(phi1));
-            vec3 v2 = center + radius * vec3(sin(theta2) * cos(phi2), cos(theta2), sin(theta2) * sin(phi2));
-            vec3 v3 = center + radius * vec3(sin(theta1) * cos(phi2), cos(theta1), sin(theta1) * sin(phi2));
-
-            triangles.push_back({v0, emission, v1, reflectivity, v2, translucency});
-            triangles.push_back({v0, emission, v2, reflectivity, v3, translucency});
-        }
-    }
-
-    return triangles;
-}
-
 Mesh getTriangleMesh(vector<Triangle>& triangles, int offset, vec3 color, float reflectivity = 0.0f, float translucency = 0.0f, float emission = 0.0f) {
     vec3 minBound(FLT_MAX);
     vec3 maxBound(-FLT_MAX);
@@ -212,16 +197,81 @@ vec3 getCentroidTriangle(const Triangle& tri) {
 
 vector<Node> nodes;
 vector<Mesh> meshes;
+vector<Triangle> triangles;
+vector<Sphere> spheres;
+vector<bvhNode> geometry;
 
-Node subdivide(int nodeIndex) {
-    Node node = nodes[nodeIndex];
+void updateBounds(Node& node) {
+    node.min = vec3(FLT_MAX);
+    node.max = vec3(-FLT_MAX);
+    if (node.count > 0) { // leaf node, calculate aabb for primitive
+        if (node.type == 0) { // triangle
+            
+        } else if (node.type == 1) { // sphere
+            Sphere sphere = spheres[node.start];
+            node.min = sphere.center - vec3(sphere.radius);
+            node.max = sphere.center + vec3(sphere.radius);
+        }
+    } else { // calculate total bounds
 
+    }
+}
 
+void swap(bvhNode a, bvhNode b) {
 
-    return node;
+}
+
+void subdivide(int nodeIndex) {
+    Node* node = &nodes[nodeIndex];
+    vec3 extent = node->max - node->min;
+    int axis = 0;
+    if (extent.y > extent.x) axis = 1;
+    if (extent.z > extent[axis]) axis = 2;
+    float splitPos = node->min[axis] + extent[axis] * 0.5f;
+
+    int i = node->start;
+    int j = i + node->count - 1;
+    while (i <= j) {
+        if (geometry[i].center[axis] < splitPos) i++;
+        else swap(geometry[i], geometry[j--]);
+    }
+    
+
+    int leftCount = i - node->start;
+    if (leftCount == 0 || leftCount == node->count) return;
+    // create child nodes
+    int leftChildIdx = nodesUsed++;
+    int rightChildIdx = nodesUsed++;
+    node->left = leftChildIdx;
+    nodes[leftChildIdx].start = node->start;
+    nodes[leftChildIdx].count = leftCount;
+    nodes[rightChildIdx].start = i;
+    nodes[rightChildIdx].count = node->count - leftCount;
+    node->count = 0;
+    updateBounds(nodes[leftChildIdx]);
+    updateBounds(nodes[rightChildIdx]);
+    subdivide(leftChildIdx);
+    subdivide(rightChildIdx);
 }
 
 void buildBVH() {
+    for (int i = 0; i < triangles.size(); i++) {
+        geometry.push_back({
+                getCentroidTriangle(triangles[i]),
+                0,
+                i
+            }
+        );
+    }
+    for (int i = 0; i < spheres.size(); i++) {
+        geometry.push_back({
+                spheres[i].center,
+                1,
+                i
+            }
+        );
+    }
+
     Node root;
     root.left = 0;
     root.right = 0;
@@ -249,35 +299,30 @@ void createGeometry() {
     const float s = 5.0f;
     const float z = 0.0f;
     vector<Triangle> floor = {
-        {{-s, z, -s}, 0.0f, { s, z, -s}, 1.0f, { s, z,  s}, 0.0f},
-        {{ s, z,  s}, 0.0f, {-s, z,  s}, 1.0f, {-s, z, -s}, 0.0f}
+        {{-s, z, -s}, { s, z, -s}, { s, z,  s}, {z, 1.0f, z}},
+        {{ s, z,  s}, {-s, z,  s}, {-s, z, -s}, {z, 1.0f, z}}
     };
-    
+
     vector<Triangle> ceiling = {
-        {{ s, s, -s}, 0.0f, {-s, s,  s}, -1.0f, { s, s,  s}, 0.0f},
-        {{ s, s, -s}, 0.0f, {-s, s, -s}, -1.0f, {-s, s,  s}, 0.0f}
+        {{ s, s, -s}, {-s, s,  s}, { s, s,  s}, {z, -1.0f, z}},
+        {{ s, s, -s}, {-s, s, -s}, {-s, s,  s}, {z, -1.0f, z}}
     };
     
     vector<Triangle> backWall = {
-        {{ s, z, -s}, 0.0f, {-s, z, -s}, 0.0f, {-s, s, -s}, 1.0f},
-        {{ s, s, -s}, 0.0f, { s, z, -s}, 0.0f, {-s, s, -s}, 1.0f}
+        {{ s, z, -s}, {-s, z, -s}, {-s, s, -s}, {z, z, 1.0f}},
+        {{ s, s, -s}, { s, z, -s}, {-s, s, -s}, {z, z, 1.0f}}
     };
     
     vector<Triangle> rightWall = {
-        {{ s, z, -s}, -1.0f, { s, s, -s}, 0.0f, { s, z,  s}, 0.0f},
-        {{ s, z,  s}, -1.0f, { s, s, -s}, 0.0f, { s, s,  s}, 0.0f}
+        {{ s, z, -s}, { s, s, -s}, { s, z,  s}, {-1.0f, z, z}},
+        {{ s, z,  s}, { s, s, -s}, { s, s,  s}, {-1.0f, z, z}}
     };
     
     vector<Triangle> leftWall = {
-        {{-s, z,  s}, 1.0f, {-s, s, -s}, 0.0f, {-s, z, -s}, 0.0f},
-        {{-s, z,  s}, 1.0f, {-s, s,  s}, 0.0f, {-s, s, -s}, 0.0f}
+        {{-s, z,  s}, {-s, s, -s}, {-s, z, -s}, {1.0f, z, z}},
+        {{-s, z,  s}, {-s, s,  s}, {-s, s, -s}, {1.0f, z, z}}
     };
-    
-    vector<Triangle> sphereTriangles = createSphereTriangles(
-        vec3(0.0f, 1.0f, 0.0f), 0.5f, 32, 32, 0.0f, 0.5f, 0.0f
-    );
 
-    vector<Triangle> triangles;
     triangles.insert(triangles.end(), floor.begin(), floor.end());
     triangles.insert(triangles.end(), ceiling.begin(), ceiling.end());
     triangles.insert(triangles.end(), backWall.begin(), backWall.end());
@@ -285,36 +330,30 @@ void createGeometry() {
     triangles.insert(triangles.end(), leftWall.begin(), leftWall.end());
     //triangles.insert(triangles.end(), sphereTriangles.begin(), sphereTriangles.end());
 
+    vector<GPUTriangle> gpuTriangles;
+    for (Triangle& tri : triangles) {
+        tri.center = getCentroidTriangle(tri);
+        gpuTriangles.push_back({
+            tri.v0, tri.n.x,
+            tri.v1, tri.n.y,
+            tri.v2, tri.n.z
+        });
+    }
+
     glGenBuffers(1, &triangleSSBO);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, triangleSSBO);
-    glBufferData(GL_SHADER_STORAGE_BUFFER, triangles.size() * sizeof(Triangle), triangles.data(), GL_DYNAMIC_DRAW);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, gpuTriangles.size() * sizeof(GPUTriangle), gpuTriangles.data(), GL_DYNAMIC_DRAW);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, triangleSSBO); // binding = 1 for SSBO
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 
     Sphere sphere0 = { vec3(1.0f, 1.0f, 0.0f), 0.5f };
     Sphere sphere1 = { vec3(-1.0f, 0.5f, -1.0f), 0.5f };
-    vector<Sphere> spheres = { sphere0, sphere1 };
+    spheres = { sphere0, sphere1 };
 
     glGenBuffers(1, &sphereSSBO);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, sphereSSBO);
     glBufferData(GL_SHADER_STORAGE_BUFFER, spheres.size() * sizeof(Sphere), spheres.data(), GL_DYNAMIC_DRAW);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, sphereSSBO); // binding = 3 for SSBO
-    glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
-
-    vector<GeoNode> geometry;
-    for (const auto& tri : triangles) {
-        geometry.push_back({ tri.v0, tri.nx });
-        geometry.push_back({ tri.v1, tri.ny });
-        geometry.push_back({ tri.v2, tri.nz });
-    }
-    for (const auto& sph : spheres) {
-        geometry.push_back({ sph.center, sph.radius });
-    }
-
-    glGenBuffers(1, &geometrySSBO);
-    glBindBuffer(GL_SHADER_STORAGE_BUFFER, geometrySSBO);
-    glBufferData(GL_SHADER_STORAGE_BUFFER, geometry.size() * sizeof(GeoNode), geometry.data(), GL_DYNAMIC_DRAW);
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, geometrySSBO); // binding = 4 for SSBO
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 
     Mesh floorMesh = getTriangleMesh(floor, 0, vec3(1.0f, 1.0f, 1.0f));
