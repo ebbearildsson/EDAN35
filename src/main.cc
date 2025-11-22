@@ -24,7 +24,7 @@ struct Camera {
     float _pad;
 };
 
-struct bvhNode { // should be center, type and index in respective array
+struct bvhNode {
     vec3 center;
     int type;
     int index;
@@ -35,7 +35,6 @@ struct Triangle {
     vec3 v1;
     vec3 v2;
     vec3 n;
-    vec3 center;
 };
 
 struct GPUTriangle {
@@ -56,7 +55,7 @@ struct Node {
     vec3 min;
     int type;
     vec3 max;
-    float _pad1;
+    float _pad0;
     int left;
     int right;
     int start;
@@ -217,11 +216,14 @@ void updateBounds(Node& node) {
     }
 }
 
-void swap(bvhNode a, bvhNode b) {
-
+void swap(int a, int b) {
+    bvhNode temp = geometry[a];
+    geometry[a] = geometry[b];
+    geometry[b] = temp;
 }
 
 void subdivide(int nodeIndex) {
+    int nodesUsed = nodes.size();
     Node* node = &nodes[nodeIndex];
     vec3 extent = node->max - node->min;
     int axis = 0;
@@ -233,7 +235,7 @@ void subdivide(int nodeIndex) {
     int j = i + node->count - 1;
     while (i <= j) {
         if (geometry[i].center[axis] < splitPos) i++;
-        else swap(geometry[i], geometry[j--]);
+        else swap(i, j--);
     }
     
 
@@ -332,7 +334,6 @@ void createGeometry() {
 
     vector<GPUTriangle> gpuTriangles;
     for (Triangle& tri : triangles) {
-        tri.center = getCentroidTriangle(tri);
         gpuTriangles.push_back({
             tri.v0, tri.n.x,
             tri.v1, tri.n.y,
@@ -382,9 +383,8 @@ void createGeometry() {
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, meshSSBO); // binding = 2 for SSBO
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 
-    buildBVH();
+    //buildBVH();
 }
-
 
 void createCamera(GLuint &cameraUBO, Camera &cam) {
     cam = {
@@ -403,7 +403,7 @@ void createCamera(GLuint &cameraUBO, Camera &cam) {
 }
 
 int main() {
-    const int WIDTH = 800, HEIGHT = 600;
+    int WIDTH = 800, HEIGHT = 600;
 
     glfwInit();
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
@@ -467,10 +467,18 @@ int main() {
     float lastFrame = 0.0f;
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
-
+        
         int width, height;
         glfwGetFramebufferSize(window, &width, &height);
-        glViewport(0, 0, width, height);
+        if (width != WIDTH || height != HEIGHT) {
+            WIDTH = width;
+            HEIGHT = height;
+            glViewport(0, 0, width, height);
+            cam.aspect = float(WIDTH) / float(HEIGHT);
+            glBindBuffer(GL_UNIFORM_BUFFER, cameraUBO);
+            glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(Camera), &cam);
+            glBindBuffer(GL_UNIFORM_BUFFER, 0);
+        }
 
         glUseProgram(computeProgram);
         glDispatchCompute((GLuint)ceil(WIDTH / 8.0f), (GLuint)ceil(HEIGHT / 8.0f), 1);
