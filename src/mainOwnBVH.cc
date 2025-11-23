@@ -9,17 +9,72 @@
 #include <string>
 #include <cmath>
 #include <vector>
+#include <unordered_map>
 
 using glm::vec2;
 using glm::vec3;
 using glm::vec4;
 using std::vector;
 
-struct Tri { vec3 v0, v1, v2; vec3 c; };
-
 #define N 64
+
+struct Tri { vec3 v0, v1, v2, c; };
 Tri tri[N];
-uint triIdx[N];
+
+struct Node {
+    vec3 aabbMin;
+    int triangleIndex;
+    vec3 aabbMax;
+    float _pad1;
+    Node* left;
+    Node* right;
+};
+
+struct GPUNode {
+    vec3 aabbMin;
+    int triangleIndex;
+    vec3 aabbMax;
+    float _pad1;
+    int leftIdx;
+    int rightIdx;
+};
+
+std::vector<GPUNode> getPreorderTraversal(Node* root) {
+    std::vector<GPUNode> result;
+    if (!root) return result;
+
+    std::vector<Node*> order;
+    order.reserve(256);
+    std::vector<Node*> stack;
+    stack.push_back(root);
+    while (!stack.empty()) {
+        Node* current = stack.back();
+        stack.pop_back();
+        order.push_back(current);
+        if (current->right) stack.push_back(current->right);
+        if (current->left)  stack.push_back(current->left);
+    }
+
+    std::unordered_map<Node*, int> indexMap;
+    indexMap.reserve(order.size() * 2);
+    for (size_t i = 0; i < order.size(); ++i) indexMap[order[i]] = (int)i;
+
+    result.reserve(order.size());
+    for (Node* n : order) {
+        int leftIdx  = n->left  ? indexMap[n->left]  : -1;
+        int rightIdx = n->right ? indexMap[n->right] : -1;
+        result.push_back({
+            n->aabbMin,
+            n->triangleIndex,
+            n->aabbMax,
+            n->_pad1,
+            leftIdx,
+            rightIdx
+        });
+    }
+
+    return result;
+}
 
 struct Camera {
     vec3 position;
@@ -134,7 +189,7 @@ void createCamera(GLuint &cameraUBO, Camera &cam) {
         vec3(0.0f, 0.0f, 10.0f),
         glm::radians(45.0f),
         vec3(0.0f, -0.2f, -1.0f),
-        800.0f / 600.0f,
+        (float)WIDTH / (float)HEIGHT,
         vec3(0.0f, 1.0f, 0.0f),
         0.0f
     };
@@ -145,86 +200,61 @@ void createCamera(GLuint &cameraUBO, Camera &cam) {
     glBindBuffer(GL_UNIFORM_BUFFER, 0);
 }
 
-struct Node {
-    vec3 aabbMin, aabbMax;
-    uint leftFirst, triCount;
-    bool isLeaf() { return triCount > 0; }
-};
-Node bvhNode[N * 2 - 1];
-uint rootNodeIdx = 0, nodesUsed = 1;
-
-void UpdateNodeBounds( uint nodeIdx ) {
-    Node& node = bvhNode[nodeIdx];
-    node.aabbMin = vec3( 1e30f );
-    node.aabbMax = vec3( -1e30f );
-    for (uint first = node.leftFirst, i = 0; i < node.triCount; i++) {
-        uint leafTriIdx = triIdx[first + i];
-        Tri& leafTri = tri[leafTriIdx];
-        node.aabbMin = glm::min( node.aabbMin, leafTri.v0 ),
-        node.aabbMin = glm::min( node.aabbMin, leafTri.v1 ),
-        node.aabbMin = glm::min( node.aabbMin, leafTri.v2 ),
-        node.aabbMax = glm::max( node.aabbMax, leafTri.v0 ),
-        node.aabbMax = glm::max( node.aabbMax, leafTri.v1 ),
-        node.aabbMax = glm::max( node.aabbMax, leafTri.v2 );
+Node* getNode(int start, int end) {
+    Node* node = nullptr;
+    if (start >= end) return nullptr;
+    if (end - start == 1) {
+        node = new Node();
+        node->aabbMin = glm::min(tri[start].v0, glm::min(tri[start].v1, tri[start].v2));
+        node->aabbMax = glm::max(tri[start].v0, glm::max(tri[start].v1, tri[start].v2));
+        node->triangleIndex = start;
+        node->left = nullptr;
+        node->right = nullptr;
+        return node;
+    } else {
+        int mid = start + (end - start) / 2;
+        Node* leftNode = getNode(start, mid);
+        Node* rightNode = getNode(mid, end);
+        node = new Node();
+        if (leftNode && rightNode) {
+            node->aabbMin = glm::min(leftNode->aabbMin, rightNode->aabbMin);
+            node->aabbMax = glm::max(leftNode->aabbMax, rightNode->aabbMax);
+        } else if (leftNode) {
+            node->aabbMin = leftNode->aabbMin;
+            node->aabbMax = leftNode->aabbMax;
+        } else if (rightNode) {
+            node->aabbMin = rightNode->aabbMin;
+            node->aabbMax = rightNode->aabbMax;
+        } else {
+            node->aabbMin = vec3(FLT_MAX);
+            node->aabbMax = vec3(-FLT_MAX);
+        }
+        node->triangleIndex = -1;
+        node->left = leftNode;
+        node->right = rightNode;
     }
+
+    return node;
 }
 
-void swap( uint& a, uint& b ) {
-    uint temp = a;
-    a = b;
-    b = temp;
-}
-
-void Subdivide( uint nodeIdx ) {
-    Node& node = bvhNode[nodeIdx];
-    if (node.triCount <= 2) return;
-    vec3 extent = node.aabbMax - node.aabbMin;
-    int axis = 0;
-    if (extent.y > extent.x) axis = 1;
-    if (extent.z > extent[axis]) axis = 2;
-    float splitPos = node.aabbMin[axis] + extent[axis] * 0.5f;
-    int i = node.leftFirst;
-    int j = i + node.triCount - 1;
-    while (i <= j) {
-        if (tri[triIdx[i]].c[axis] < splitPos) i++;
-        else swap( triIdx[i], triIdx[j--] );
-    }
-    int leftCount = i - node.leftFirst;
-    if (leftCount == 0 || leftCount == node.triCount) return;
-    int leftChildIdx = nodesUsed++;
-    int rightChildIdx = nodesUsed++;
-    bvhNode[leftChildIdx].leftFirst = node.leftFirst;
-    bvhNode[leftChildIdx].triCount = leftCount;
-    bvhNode[rightChildIdx].leftFirst = i;
-    bvhNode[rightChildIdx].triCount = node.triCount - leftCount;
-    node.leftFirst = leftChildIdx;
-    node.triCount = 0;
-    UpdateNodeBounds( leftChildIdx );
-    UpdateNodeBounds( rightChildIdx );
-    Subdivide( leftChildIdx );
-    Subdivide( rightChildIdx );
-}
-
-void BuildBVH() {
-    for (int i = 0; i < N; i++) {
-        triIdx[i] = i;
-        tri[i].c = (tri[i].v0 + tri[i].v1 + tri[i].v2) * 0.3333f;
-    }
-    Node& root = bvhNode[rootNodeIdx];
-    root.leftFirst = 0;
-    root.triCount = 0;
-    UpdateNodeBounds( rootNodeIdx );
-    Subdivide( rootNodeIdx );
+Node* BuildBVH() {
+    std::sort(tri, tri + N, [](const Tri& a, const Tri& b) {
+        return a.c.x < b.c.x;
+    });
+    
+    Node* root = getNode(0, N);
+    return root;
 }
 
 void Init() {
     for (int i = 0; i < N; i++) {
         vec3 r0 = vec3(rand(), rand(), rand()) / (float)RAND_MAX;
-        vec3 r1 = vec3(rand(), rand(), rand()) / (float)RAND_MAX;
-        vec3 r2 = vec3(rand(), rand(), rand()) / (float)RAND_MAX;
+        vec3 r1 = vec3(rand()) / (float)RAND_MAX;
+        vec3 r2 = vec3(rand()) / (float)RAND_MAX;
         tri[i].v0 = r0 * 9.0f - vec3(5.0f);
         tri[i].v1 = tri[i].v0 + r1;
         tri[i].v2 = tri[i].v0 + r2;
+        tri[i].c = (tri[i].v0 + tri[i].v1 + tri[i].v2) / 3.0f;
     }
 
     GLuint triSSBO;
@@ -234,20 +264,13 @@ void Init() {
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, triSSBO); // binding = 0 for SSBO
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 
-    BuildBVH();
-
+    Node* root = BuildBVH();
+    std::vector<GPUNode> bvhNodes = getPreorderTraversal(root);
     GLuint bvhSSBO;
     glGenBuffers(1, &bvhSSBO);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, bvhSSBO);
-    glBufferData(GL_SHADER_STORAGE_BUFFER, nodesUsed * sizeof(Node), bvhNode, GL_DYNAMIC_DRAW);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, bvhNodes.size() * sizeof(GPUNode), bvhNodes.data(), GL_DYNAMIC_DRAW);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, bvhSSBO); // binding = 1 for SSBO
-    glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
-
-    GLuint triIdxSSBO;
-    glGenBuffers(1, &triIdxSSBO);
-    glBindBuffer(GL_SHADER_STORAGE_BUFFER, triIdxSSBO);
-    glBufferData(GL_SHADER_STORAGE_BUFFER, N * sizeof(uint), triIdx, GL_DYNAMIC_DRAW);
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, triIdxSSBO); // binding = 2 for SSBO
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 }
 
@@ -274,7 +297,7 @@ int main() {
     glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA32F, WIDTH, HEIGHT);
     glBindImageTexture(0, tex, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32F);
 
-    GLuint computeProgram = createProgram("../shaders/traceBVH.glsl");
+    GLuint computeProgram = createProgram("../shaders/traceOwnBVH.glsl");
 
     float quadVertices[] = {
         -1.0f, -1.0f,  0.0f, 0.0f,
