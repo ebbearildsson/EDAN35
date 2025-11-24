@@ -21,59 +21,29 @@ using std::vector;
 struct Tri { vec3 v0, v1, v2, c; };
 Tri tri[N];
 
-struct Node {
-    vec3 aabbMin;
+struct Node { // does not need to be compressed -> need info on which primitive anyways
+    vec3 min;
     int triangleIndex;
-    vec3 aabbMax;
-    float _pad1;
-    Node* left;
-    Node* right;
+    vec3 max;
+    int ownIndex;
+    int left;
+    int right;
 };
 
-struct GPUNode {
-    vec3 aabbMin;
-    int triangleIndex;
-    vec3 aabbMax;
-    float _pad1;
-    int leftIdx;
-    int rightIdx;
-};
+vector<Node> nodes;
 
-std::vector<GPUNode> getPreorderTraversal(Node* root) {
-    std::vector<GPUNode> result;
-    if (!root) return result;
-
-    std::vector<Node*> order;
-    order.reserve(256);
-    std::vector<Node*> stack;
-    stack.push_back(root);
+void getPreorderTraversal(std::vector<Node>* outNodes) {
+    std::vector<int> stack;
+    stack.push_back(0);
     while (!stack.empty()) {
-        Node* current = stack.back();
+        Node current = nodes[stack.back()];
         stack.pop_back();
-        order.push_back(current);
-        if (current->right) stack.push_back(current->right);
-        if (current->left)  stack.push_back(current->left);
+        outNodes->push_back(current);
+        
+        if (current.triangleIndex != -1) continue; // leaf node
+        stack.push_back(current.left);
+        stack.push_back(current.right);
     }
-
-    std::unordered_map<Node*, int> indexMap;
-    indexMap.reserve(order.size() * 2);
-    for (size_t i = 0; i < order.size(); ++i) indexMap[order[i]] = (int)i;
-
-    result.reserve(order.size());
-    for (Node* n : order) {
-        int leftIdx  = n->left  ? indexMap[n->left]  : -1;
-        int rightIdx = n->right ? indexMap[n->right] : -1;
-        result.push_back({
-            n->aabbMin,
-            n->triangleIndex,
-            n->aabbMax,
-            n->_pad1,
-            leftIdx,
-            rightIdx
-        });
-    }
-
-    return result;
 }
 
 struct Camera {
@@ -200,50 +170,30 @@ void createCamera(GLuint &cameraUBO, Camera &cam) {
     glBindBuffer(GL_UNIFORM_BUFFER, 0);
 }
 
-Node* getNode(int start, int end) {
-    Node* node = nullptr;
-    if (start >= end) return nullptr;
+void buildNode(int index, int start, int end) {
+    Node node;
+    nodes.push_back(node);
+    if (start >= end) return;
     if (end - start == 1) {
-        node = new Node();
-        node->aabbMin = glm::min(tri[start].v0, glm::min(tri[start].v1, tri[start].v2));
-        node->aabbMax = glm::max(tri[start].v0, glm::max(tri[start].v1, tri[start].v2));
-        node->triangleIndex = start;
-        node->left = nullptr;
-        node->right = nullptr;
-        return node;
+        nodes[index].min = glm::min(tri[start].v0, glm::min(tri[start].v1, tri[start].v2));
+        nodes[index].triangleIndex = start; // this is the error
+        nodes[index].max = glm::max(tri[start].v0, glm::max(tri[start].v1, tri[start].v2));
+        nodes[index].ownIndex = index;
+        nodes[index].left = -1;
+        nodes[index].right = -1;
     } else {
         int mid = start + (end - start) / 2;
-        Node* leftNode = getNode(start, mid);
-        Node* rightNode = getNode(mid, end);
-        node = new Node();
-        if (leftNode && rightNode) {
-            node->aabbMin = glm::min(leftNode->aabbMin, rightNode->aabbMin);
-            node->aabbMax = glm::max(leftNode->aabbMax, rightNode->aabbMax);
-        } else if (leftNode) {
-            node->aabbMin = leftNode->aabbMin;
-            node->aabbMax = leftNode->aabbMax;
-        } else if (rightNode) {
-            node->aabbMin = rightNode->aabbMin;
-            node->aabbMax = rightNode->aabbMax;
-        } else {
-            node->aabbMin = vec3(FLT_MAX);
-            node->aabbMax = vec3(-FLT_MAX);
-        }
-        node->triangleIndex = -1;
-        node->left = leftNode;
-        node->right = rightNode;
+        int leftIndex = index + 1;
+        buildNode(leftIndex, start, mid);
+        int rightIndex = nodes.size();
+        buildNode(rightIndex, mid, end);
+        nodes[index].min = glm::min(nodes[leftIndex].min, nodes[rightIndex].min);
+        nodes[index].max = glm::max(nodes[leftIndex].max, nodes[rightIndex].max);
+        nodes[index].ownIndex = index;
+        nodes[index].triangleIndex = -1;
+        nodes[index].left = leftIndex;
+        nodes[index].right = rightIndex;
     }
-
-    return node;
-}
-
-Node* BuildBVH() {
-    std::sort(tri, tri + N, [](const Tri& a, const Tri& b) {
-        return a.c.x < b.c.x;
-    });
-    
-    Node* root = getNode(0, N);
-    return root;
 }
 
 void Init() {
@@ -256,6 +206,12 @@ void Init() {
         tri[i].v2 = tri[i].v0 + r2;
         tri[i].c = (tri[i].v0 + tri[i].v1 + tri[i].v2) / 3.0f;
     }
+    /*
+    std::sort(tri, tri + N, [](const Tri& a, const Tri& b) {
+        return a.c.x < b.c.x;
+    }); // this doesnt work I need to select a split point for each
+    */
+    buildNode(0, 0, N);
 
     GLuint triSSBO;
     glGenBuffers(1, &triSSBO);
@@ -264,12 +220,10 @@ void Init() {
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, triSSBO); // binding = 0 for SSBO
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 
-    Node* root = BuildBVH();
-    std::vector<GPUNode> bvhNodes = getPreorderTraversal(root);
     GLuint bvhSSBO;
     glGenBuffers(1, &bvhSSBO);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, bvhSSBO);
-    glBufferData(GL_SHADER_STORAGE_BUFFER, bvhNodes.size() * sizeof(GPUNode), bvhNodes.data(), GL_DYNAMIC_DRAW);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, nodes.size() * sizeof(Node), nodes.data(), GL_DYNAMIC_DRAW);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, bvhSSBO); // binding = 1 for SSBO
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 }
@@ -331,15 +285,21 @@ int main() {
     glBindBufferBase(GL_UNIFORM_BUFFER, 2, mouseUBO); // binding = 2 for UBO
     glBindBuffer(GL_UNIFORM_BUFFER, 0);
 
+    float initialTime = glfwGetTime();
     Init();
-
+    std::cout << "BVH build time: " << (glfwGetTime() - initialTime) << " seconds\n";
+    for (Node& n : nodes) {
+        std::cout << "Node " << n.ownIndex << ": triIndex=" << n.triangleIndex
+                  << ", left=" << n.left << ", right=" << n.right << "\n";
+    }
+    
     int nbFrames = 0;
     double lastTime = glfwGetTime();
     float lastFrame = 0.0f;
+    int width, height;
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
         
-        int width, height;
         glfwGetFramebufferSize(window, &width, &height);
         if (width != WIDTH || height != HEIGHT) {
             WIDTH = width;

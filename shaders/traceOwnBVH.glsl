@@ -1,6 +1,6 @@
 #version 430 core
 
-const float EPSILON = 1e-3;
+const float EPSILON = 1e-6;
 const float MAXILON = 1e6;
 
 struct Triangle { vec3 v0; vec3 v1; vec3 v2; vec3 c; };
@@ -36,21 +36,23 @@ layout (std430, binding = 0) buffer Triangles { Triangle triangles[]; };
 layout (std430, binding = 1) buffer BVH { Node nodes[]; };
 
 float findTriangleIntersection(vec3 rayOrigin, vec3 rayDir, Triangle tri) {
-    const vec3 edge1 = tri.v1 - tri.v0;
-    const vec3 edge2 = tri.v2 - tri.v0;
-    const vec3 h = cross(rayDir, edge2);
-    const float a = dot(edge1, h);
-    if (a > -EPSILON && a < EPSILON) return MAXILON;
-    const float f = 1 / a;
-    const vec3 s = rayOrigin - tri.v0;
-    const float u = f * dot(s, h);
-    if (u < 0 || u > 1) return MAXILON;
-    const vec3 q = cross(s, edge1);
-    const float v = f * dot(rayDir, q);
-    if (v < 0 || u + v > 1) return MAXILON;
-    const float t = f * dot(edge2, q);
-    if (t > EPSILON) return t;
-    else return MAXILON;
+    vec3 edge1 = tri.v1 - tri.v0;
+    vec3 edge2 = tri.v2 - tri.v0;
+    vec3 h = cross(rayDir, edge2);
+    float a = dot(edge1, h);
+
+    if (abs(a) < EPSILON) return MAXILON;
+
+    float f = 1.0 / a;
+    vec3 s = rayOrigin - tri.v0;
+    float u = f * dot(s, h);
+    if (u < 0.0 || u > 1.0) return MAXILON;
+
+    vec3 q = cross(s, edge1);
+    float v = f * dot(rayDir, q);
+    if (v < 0.0 || u + v > 1.0) return MAXILON;
+    float t = f * dot(edge2, q);
+    return (t > EPSILON) ? t : MAXILON;
 }
 
 bool IntersectAABB(vec3 rayOri, vec3 rayDir, vec3 minBound, vec3 maxBound) {
@@ -78,7 +80,7 @@ float traverseBVH(vec3 rayOri, vec3 rayDir) {
         if (node.triangleIndex >= 0) {
             Triangle tri = triangles[node.triangleIndex];
             float t = findTriangleIntersection(rayOri, rayDir, tri);
-            if (t < closestT) closestT = t;
+            if (t > 0.0 && t < closestT) closestT = t;
         } else {
             if (node.rightIdx >= 0) stack[stackPtr++] = node.rightIdx;
             if (node.leftIdx >= 0)  stack[stackPtr++] = node.leftIdx;

@@ -146,7 +146,7 @@ void createCamera(GLuint &cameraUBO, Camera &cam) {
 }
 
 struct Node {
-    vec3 aabbMin, aabbMax;
+    vec3 min, max;
     uint leftFirst, triCount;
     bool isLeaf() { return triCount > 0; }
 };
@@ -155,17 +155,17 @@ uint rootNodeIdx = 0, nodesUsed = 1;
 
 void UpdateNodeBounds( uint nodeIdx ) {
     Node& node = bvhNode[nodeIdx];
-    node.aabbMin = vec3( 1e30f );
-    node.aabbMax = vec3( -1e30f );
+    node.min = vec3( 1e30f );
+    node.max = vec3( -1e30f );
     for (uint first = node.leftFirst, i = 0; i < node.triCount; i++) {
         uint leafTriIdx = triIdx[first + i];
         Tri& leafTri = tri[leafTriIdx];
-        node.aabbMin = glm::min( node.aabbMin, leafTri.v0 ),
-        node.aabbMin = glm::min( node.aabbMin, leafTri.v1 ),
-        node.aabbMin = glm::min( node.aabbMin, leafTri.v2 ),
-        node.aabbMax = glm::max( node.aabbMax, leafTri.v0 ),
-        node.aabbMax = glm::max( node.aabbMax, leafTri.v1 ),
-        node.aabbMax = glm::max( node.aabbMax, leafTri.v2 );
+        node.min = glm::min( node.min, leafTri.v0 ),
+        node.min = glm::min( node.min, leafTri.v1 ),
+        node.min = glm::min( node.min, leafTri.v2 ),
+        node.max = glm::max( node.max, leafTri.v0 ),
+        node.max = glm::max( node.max, leafTri.v1 ),
+        node.max = glm::max( node.max, leafTri.v2 );
     }
 }
 
@@ -178,11 +178,11 @@ void swap( uint& a, uint& b ) {
 void Subdivide( uint nodeIdx ) {
     Node& node = bvhNode[nodeIdx];
     if (node.triCount <= 2) return;
-    vec3 extent = node.aabbMax - node.aabbMin;
+    vec3 extent = node.max - node.min;
     int axis = 0;
     if (extent.y > extent.x) axis = 1;
     if (extent.z > extent[axis]) axis = 2;
-    float splitPos = node.aabbMin[axis] + extent[axis] * 0.5f;
+    float splitPos = node.min[axis] + extent[axis] * 0.5f;
     int i = node.leftFirst;
     int j = i + node.triCount - 1;
     while (i <= j) {
