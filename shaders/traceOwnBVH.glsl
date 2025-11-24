@@ -6,9 +6,9 @@ const float MAXILON = 1e6;
 struct Triangle { vec3 v0; vec3 v1; vec3 v2; vec3 c; };
 
 struct Node {
-    vec3 aabbMin;
-    int triangleIndex;
-    vec3 aabbMax;
+    vec3 min;
+    int triIdx;
+    vec3 max;
     float _pad1;
     int leftIdx;
     int rightIdx;
@@ -40,14 +40,11 @@ float findTriangleIntersection(vec3 rayOrigin, vec3 rayDir, Triangle tri) {
     vec3 edge2 = tri.v2 - tri.v0;
     vec3 h = cross(rayDir, edge2);
     float a = dot(edge1, h);
-
     if (abs(a) < EPSILON) return MAXILON;
-
     float f = 1.0 / a;
     vec3 s = rayOrigin - tri.v0;
     float u = f * dot(s, h);
     if (u < 0.0 || u > 1.0) return MAXILON;
-
     vec3 q = cross(s, edge1);
     float v = f * dot(rayDir, q);
     if (v < 0.0 || u + v > 1.0) return MAXILON;
@@ -67,7 +64,7 @@ bool IntersectAABB(vec3 rayOri, vec3 rayDir, vec3 minBound, vec3 maxBound) {
 
 float traverseBVH(vec3 rayOri, vec3 rayDir) {
     float closestT = MAXILON;
-    int stack[64];
+    int stack[128];
     int stackPtr = 0;
     stack[stackPtr++] = 0;
 
@@ -75,11 +72,10 @@ float traverseBVH(vec3 rayOri, vec3 rayDir) {
         int nodeIdx = stack[--stackPtr];
         Node node = nodes[nodeIdx];
 
-        if (!IntersectAABB(rayOri, rayDir, node.aabbMin, node.aabbMax)) continue;
+        if (!IntersectAABB(rayOri, rayDir, node.min, node.max)) continue;
 
-        if (node.triangleIndex >= 0) {
-            Triangle tri = triangles[node.triangleIndex];
-            float t = findTriangleIntersection(rayOri, rayDir, tri);
+        if (node.triIdx >= 0) {
+            float t = findTriangleIntersection(rayOri, rayDir, triangles[node.triIdx]);
             if (t > 0.0 && t < closestT) closestT = t;
         } else {
             if (node.rightIdx >= 0) stack[stackPtr++] = node.rightIdx;

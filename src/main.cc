@@ -58,7 +58,7 @@ struct Node {
     float _pad0;
     int left;
     int right;
-    int triangleIndex;
+    int triIdx;
     int count;
 };
 
@@ -207,7 +207,7 @@ void updateBounds(Node& node) {
         if (node.type == 0) { // triangle
             
         } else if (node.type == 1) { // sphere
-            Sphere sphere = spheres[node.triangleIndex];
+            Sphere sphere = spheres[node.triIdx];
             node.min = sphere.center - vec3(sphere.radius);
             node.max = sphere.center + vec3(sphere.radius);
         }
@@ -231,7 +231,7 @@ void subdivide(int nodeIndex) {
     if (extent.z > extent[axis]) axis = 2;
     float splitPos = node->min[axis] + extent[axis] * 0.5f;
 
-    int i = node->triangleIndex;
+    int i = node->triIdx;
     int j = i + node->count - 1;
     while (i <= j) {
         if (geometry[i].center[axis] < splitPos) i++;
@@ -239,15 +239,15 @@ void subdivide(int nodeIndex) {
     }
     
 
-    int leftCount = i - node->triangleIndex;
+    int leftCount = i - node->triIdx;
     if (leftCount == 0 || leftCount == node->count) return;
     // create child nodes
     int leftChildIdx = nodesUsed++;
     int rightChildIdx = nodesUsed++;
     node->left = leftChildIdx;
-    nodes[leftChildIdx].triangleIndex = node->triangleIndex;
+    nodes[leftChildIdx].triIdx = node->triIdx;
     nodes[leftChildIdx].count = leftCount;
-    nodes[rightChildIdx].triangleIndex = i;
+    nodes[rightChildIdx].triIdx = i;
     nodes[rightChildIdx].count = node->count - leftCount;
     node->count = 0;
     updateBounds(nodes[leftChildIdx]);
@@ -277,7 +277,7 @@ void buildBVH() {
     Node root;
     root.left = 0;
     root.right = 0;
-    root.triangleIndex = 0;
+    root.triIdx = 0;
     root.count = 0;
     root.min = vec3(FLT_MAX);
     root.max = vec3(-FLT_MAX);

@@ -9,42 +9,20 @@
 #include <string>
 #include <cmath>
 #include <vector>
-#include <unordered_map>
 
-using glm::vec2;
-using glm::vec3;
-using glm::vec4;
-using std::vector;
-
-#define N 64
+using namespace glm;
+using namespace std;
 
 struct Tri { vec3 v0, v1, v2, c; };
-Tri tri[N];
 
 struct Node { // does not need to be compressed -> need info on which primitive anyways
     vec3 min;
-    int triangleIndex;
+    int triIdx;
     vec3 max;
-    int ownIndex;
+    int ownIdx;
     int left;
     int right;
 };
-
-vector<Node> nodes;
-
-void getPreorderTraversal(std::vector<Node>* outNodes) {
-    std::vector<int> stack;
-    stack.push_back(0);
-    while (!stack.empty()) {
-        Node current = nodes[stack.back()];
-        stack.pop_back();
-        outNodes->push_back(current);
-        
-        if (current.triangleIndex != -1) continue; // leaf node
-        stack.push_back(current.left);
-        stack.push_back(current.right);
-    }
-}
 
 struct Camera {
     vec3 position;
@@ -60,16 +38,20 @@ struct Light {
     float intensity;
 };
 
-std::string loadFile(const std::string& path) {
-    std::ifstream file(path);
-    if (!file.is_open())
-        throw std::runtime_error("Failed to open file: " + path);
-    std::stringstream ss;
+#define N 64
+int WIDTH = 800, HEIGHT = 600;
+vector<Node> nodes;
+Tri tri[N];
+
+string loadFile(const string& path) {
+    ifstream file(path);
+    if (!file.is_open()) throw runtime_error("Failed to open file: " + path);
+    stringstream ss;
     ss << file.rdbuf();
     return ss.str();
 }
 
-GLuint compileShader(GLenum type, const std::string& src) {
+GLuint compileShader(GLenum type, const string& src) {
     GLuint shader = glCreateShader(type);
     const char* csrc = src.c_str();
     glShaderSource(shader, 1, &csrc, nullptr);
@@ -79,13 +61,13 @@ GLuint compileShader(GLenum type, const std::string& src) {
     if (!success) {
         char info[512];
         glGetShaderInfoLog(shader, 512, nullptr, info);
-        std::cerr << "Shader compile error:\n" << info << std::endl;
+        cerr << "Shader compile error:\n" << info << endl;
     }
     return shader;
 }
 
-GLuint createProgram(const std::string& compPath) {
-    std::string src = loadFile(compPath);
+GLuint createProgram(const string& compPath) {
+    string src = loadFile(compPath);
     GLuint shader = compileShader(GL_COMPUTE_SHADER, src);
     GLuint prog = glCreateProgram();
     glAttachShader(prog, shader);
@@ -94,9 +76,9 @@ GLuint createProgram(const std::string& compPath) {
     return prog;
 }
 
-GLuint createQuadProgram(const std::string& vertPath, const std::string& fragPath) {
-    std::string vsrc = loadFile(vertPath);
-    std::string fsrc = loadFile(fragPath);
+GLuint createQuadProgram(const string& vertPath, const string& fragPath) {
+    string vsrc = loadFile(vertPath);
+    string fsrc = loadFile(fragPath);
     GLuint vsh = compileShader(GL_VERTEX_SHADER, vsrc);
     GLuint fsh = compileShader(GL_FRAGMENT_SHADER, fsrc);
     GLuint prog = glCreateProgram();
@@ -152,12 +134,10 @@ void createLights() {
     glBindBuffer(GL_UNIFORM_BUFFER, 0);
 }
 
-int WIDTH = 800, HEIGHT = 600;
-
 void createCamera(GLuint &cameraUBO, Camera &cam) {
     cam = {
         vec3(0.0f, 0.0f, 10.0f),
-        glm::radians(45.0f),
+        radians(45.0f),
         vec3(0.0f, -0.2f, -1.0f),
         (float)WIDTH / (float)HEIGHT,
         vec3(0.0f, 1.0f, 0.0f),
@@ -170,29 +150,62 @@ void createCamera(GLuint &cameraUBO, Camera &cam) {
     glBindBuffer(GL_UNIFORM_BUFFER, 0);
 }
 
-void buildNode(int index, int start, int end) {
-    Node node;
+void buildNodeTopDown(int idx, vector<int> idxs) {
+    Node node = { vec3(FLT_MAX), -1, vec3(-FLT_MAX), idx, -1, -1 };
     nodes.push_back(node);
-    if (start >= end) return;
-    if (end - start == 1) {
-        nodes[index].min = glm::min(tri[start].v0, glm::min(tri[start].v1, tri[start].v2));
-        nodes[index].triangleIndex = start; // this is the error
-        nodes[index].max = glm::max(tri[start].v0, glm::max(tri[start].v1, tri[start].v2));
-        nodes[index].ownIndex = index;
-        nodes[index].left = -1;
-        nodes[index].right = -1;
+    if (idxs.size() == 1) {
+        int triIdx = idxs[0];
+        nodes[idx].min = min(tri[triIdx].v0, min(tri[triIdx].v1, tri[triIdx].v2));
+        nodes[idx].max = max(tri[triIdx].v0, max(tri[triIdx].v1, tri[triIdx].v2));
+        nodes[idx].triIdx = triIdx;
     } else {
-        int mid = start + (end - start) / 2;
-        int leftIndex = index + 1;
-        buildNode(leftIndex, start, mid);
-        int rightIndex = nodes.size();
-        buildNode(rightIndex, mid, end);
-        nodes[index].min = glm::min(nodes[leftIndex].min, nodes[rightIndex].min);
-        nodes[index].max = glm::max(nodes[leftIndex].max, nodes[rightIndex].max);
-        nodes[index].ownIndex = index;
-        nodes[index].triangleIndex = -1;
-        nodes[index].left = leftIndex;
-        nodes[index].right = rightIndex;
+        vec3 extent = nodes[idx].max - nodes[idx].min;
+        int axis = 0;
+        if (extent.y > extent.x) axis = 1;
+        if (extent.z > extent[axis]) axis = 2;
+        
+        vector<int> leftIdxs, rightIdxs;
+        sort(idxs.begin(), idxs.end(), [axis](int a, int b) { return tri[a].c[axis] < tri[b].c[axis]; });
+        int mid = idxs.size() / 2;
+        leftIdxs.insert(leftIdxs.end(), idxs.begin(), idxs.begin() + mid);
+        rightIdxs.insert(rightIdxs.end(), idxs.begin() + mid, idxs.end());     
+
+        int leftIdx, rightIdx = -1;
+        if (!leftIdxs.empty()) {
+            leftIdx = idx + 1;
+            nodes[idx].left = leftIdx;
+            buildNodeTopDown(leftIdx, leftIdxs);
+        } 
+        if (!rightIdxs.empty()) {
+            rightIdx = nodes.size();
+            nodes[idx].right = rightIdx;
+            buildNodeTopDown(rightIdx, rightIdxs);  
+        }
+
+        if (leftIdx != -1 && rightIdx != -1) {
+            nodes[idx].max = max(nodes[nodes[idx].left].max, nodes[nodes[idx].right].max);
+            nodes[idx].min = min(nodes[nodes[idx].left].min, nodes[nodes[idx].right].min);
+        } else if (leftIdx != -1) {
+            nodes[idx].max = nodes[nodes[idx].left].max;
+            nodes[idx].min = nodes[nodes[idx].left].min;
+        } else if (rightIdx != -1) {
+            nodes[idx].max = nodes[nodes[idx].right].max;
+            nodes[idx].min = nodes[nodes[idx].right].min;
+        }
+    }
+}
+
+void tightenBounds(int index) {
+    Node* node = &nodes[index];
+    if (node->triIdx != -1) {
+        int triIndex = node->triIdx;
+        node->min = min(tri[triIndex].v0, min(tri[triIndex].v1, tri[triIndex].v2));
+        node->max = max(tri[triIndex].v0, max(tri[triIndex].v1, tri[triIndex].v2));
+    } else {
+        tightenBounds(node->left);
+        tightenBounds(node->right);
+        node->min = min(nodes[node->left].min, nodes[node->right].min);
+        node->max = max(nodes[node->left].max, nodes[node->right].max);
     }
 }
 
@@ -206,12 +219,10 @@ void Init() {
         tri[i].v2 = tri[i].v0 + r2;
         tri[i].c = (tri[i].v0 + tri[i].v1 + tri[i].v2) / 3.0f;
     }
-    /*
-    std::sort(tri, tri + N, [](const Tri& a, const Tri& b) {
-        return a.c.x < b.c.x;
-    }); // this doesnt work I need to select a split point for each
-    */
-    buildNode(0, 0, N);
+    vector<int> allIndices;
+    for (int i = 0; i < N; ++i) allIndices.push_back(i);
+    buildNodeTopDown(0, allIndices);
+    tightenBounds(0);
 
     GLuint triSSBO;
     glGenBuffers(1, &triSSBO);
@@ -235,12 +246,12 @@ int main() {
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
     GLFWwindow* window = glfwCreateWindow(WIDTH, HEIGHT, "Raytracer", nullptr, nullptr);
     if (!window) {
-        std::cerr << "Failed to create window\n";
+        cerr << "Failed to create window\n";
         return -1;
     }
     glfwMakeContextCurrent(window);
     if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
-        std::cerr << "Failed to init GLAD\n";
+        cerr << "Failed to init GLAD\n";
         return -1;
     }
     glfwSwapInterval(0);
@@ -287,10 +298,9 @@ int main() {
 
     float initialTime = glfwGetTime();
     Init();
-    std::cout << "BVH build time: " << (glfwGetTime() - initialTime) << " seconds\n";
+    cout << "BVH build time: " << (glfwGetTime() - initialTime) << " seconds\n";
     for (Node& n : nodes) {
-        std::cout << "Node " << n.ownIndex << ": triIndex=" << n.triangleIndex
-                  << ", left=" << n.left << ", right=" << n.right << "\n";
+        cout << "Node " << n.ownIdx << ": triIndex=" << n.triIdx << ", left=" << n.left << ", right=" << n.right << "\n";
     }
     
     int nbFrames = 0;
@@ -345,9 +355,9 @@ int main() {
             double fps = double(nbFrames) / (currentTime - lastTime);
             double frameTimeMs = 1000.0 / fps;
 
-            std::string title = "Raytracer - " +
-                std::to_string((int)fps) + " FPS | " +
-                std::to_string(frameTimeMs).substr(0, 5) + " ms/frame";
+            string title = "Raytracer - " +
+                to_string((int)fps) + " FPS | " +
+                to_string(frameTimeMs).substr(0, 5) + " ms/frame";
             glfwSetWindowTitle(window, title.c_str());
 
             nbFrames = 0;
