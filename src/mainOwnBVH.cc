@@ -20,6 +20,19 @@ struct Tri { //TODO: compact this
     vec4 c; 
 };
 
+struct Sph {
+    vec3 center;
+    float radius;
+};
+
+struct Material { //TODO: compact this
+    vec4 color;
+    float reflectivity;
+    float translucency;
+    float emission;
+    float refractiveIndex;
+};
+
 struct Node { //TODO: compact this
     vec3 min;
     int idx;
@@ -28,17 +41,13 @@ struct Node { //TODO: compact this
     int left;
     int right;
     int type;
-    float _pad1;
+    int materialIdx;
 };
 
-struct Sphere {
-    vec3 center;
-    float radius;
-};
 
 static_assert(sizeof(Tri) == 64, "Tri size incorrect");
 static_assert(sizeof(Node) == 48, "Node size incorrect");
-static_assert(sizeof(Sphere) == 16, "Sphere size incorrect");
+static_assert(sizeof(Sph) == 16, "Sphere size incorrect");
 
 struct Camera {
     vec3 position;
@@ -58,7 +67,16 @@ struct Light {
 int WIDTH = 800, HEIGHT = 600;
 vector<Node> nodes;
 vector<Tri> triangles;
-vector<Sphere> spheres;
+vector<Sph> spheres;
+vector<Material> materials;
+
+float rnd(float min, float max) {
+    return ((float)rand() / RAND_MAX) * (max - min) + min;
+}
+
+int rnd(int min, int max) {
+    return rand() % (max - min) + min;
+}
 
 string loadFile(const string& path) {
     ifstream file(path);
@@ -187,12 +205,13 @@ void buildNodeTopDown(int idx, vector<Type> idxs) { //TODO: consider BVH8
             nodes[idx].min = min(tri.v0, min(tri.v1, tri.v2));
             nodes[idx].max = max(tri.v0, max(tri.v1, tri.v2));
         } else if (t.type == 1) {
-            Sphere& sph = spheres[t.idx];
+            Sph& sph = spheres[t.idx];
             nodes[idx].min = sph.center - vec3(sph.radius);
             nodes[idx].max = sph.center + vec3(sph.radius);
         }
         nodes[idx].idx = t.idx;
         nodes[idx].type = t.type;
+        nodes[idx].materialIdx = rnd(0, materials.size());
     } else {
         //! extent calculated before min/max are set, thus axis is always 0
         vec3 extent = nodes[idx].max - nodes[idx].min; 
@@ -243,7 +262,7 @@ void tightenBounds(int index) {
             node->min = min(tri.v0, min(tri.v1, tri.v2));
             node->max = max(tri.v0, max(tri.v1, tri.v2));
         } else if (node->type == 1) {
-            Sphere& sph = spheres[node->idx];
+            Sph& sph = spheres[node->idx];
             node->min = sph.center - vec3(sph.radius);
             node->max = sph.center + vec3(sph.radius);
         }
@@ -255,9 +274,6 @@ void tightenBounds(int index) {
     }
 }
 
-float rnd(float min, float max) {
-    return ((float)rand() / RAND_MAX) * (max - min) + min;
-}
 
 void init(GLuint triSSBO, GLuint sphSSBO, GLuint bvhSSBO) {
     vector<Type> allIndices;
@@ -286,7 +302,7 @@ void init(GLuint triSSBO, GLuint sphSSBO, GLuint bvhSSBO) {
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 
     for (int i = 0; i < N; i++) {
-        Sphere sph;
+        Sph sph;
         sph.center = vec3(rnd(-3.0f, 3.0f), rnd(-3.0f, 3.0f), rnd(-3.0f, 3.0f));
         sph.radius = rnd(0.1f, 0.5f);
         spheres.push_back(sph);
@@ -299,7 +315,7 @@ void init(GLuint triSSBO, GLuint sphSSBO, GLuint bvhSSBO) {
 
     glGenBuffers(1, &sphSSBO);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, sphSSBO);
-    glBufferData(GL_SHADER_STORAGE_BUFFER, spheres.size() * sizeof(Sphere), spheres.data(), GL_DYNAMIC_DRAW);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, spheres.size() * sizeof(Sph), spheres.data(), GL_DYNAMIC_DRAW);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, sphSSBO); // binding = 1 for SSBO
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 
@@ -369,6 +385,22 @@ int main() {
     glBufferData(GL_UNIFORM_BUFFER, sizeof(vec2), &mousePos, GL_DYNAMIC_DRAW);
     glBindBufferBase(GL_UNIFORM_BUFFER, 2, mouseUBO); // binding = 2 for UBO
     glBindBuffer(GL_UNIFORM_BUFFER, 0);
+
+    Material defaultMat = { vec4(1.0f, 1.0f, 1.0f, 1.0f), 0.0f, 0.0f, 0.0f, 1.0f };
+    materials.push_back(defaultMat);
+
+    Material reflectiveRed = { vec4(1.0f, 0.0f, 0.0f, 1.0f), 0.8f, 0.0f, 0.0f, 1.0f };
+    materials.push_back(reflectiveRed);
+
+    Material translucentBlue = { vec4(0.0f, 0.0f, 1.0f, 1.0f), 0.1f, 0.8f, 0.0f, 1.5f };
+    materials.push_back(translucentBlue);
+
+    GLuint materialSSBO;
+    glGenBuffers(1, &materialSSBO);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, materialSSBO);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, materials.size() * sizeof(Material), materials.data(), GL_DYNAMIC_DRAW);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, materialSSBO); // binding = 3 for SSBO
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0); 
 
     float initialTime = glfwGetTime();
     GLuint triSSBO, sphSSBO, bvhSSBO;

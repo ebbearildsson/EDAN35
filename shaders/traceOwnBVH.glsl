@@ -10,6 +10,11 @@ struct Triangle { // 64 bytes
     vec3 c;  float _pad3;
 };
 
+struct Sphere { // 16 bytes
+    vec3 center;
+    float radius;
+};
+
 struct Node { // 48 bytes
     vec3 min;
     int idx;
@@ -18,12 +23,15 @@ struct Node { // 48 bytes
     int leftIdx;
     int rightIdx;
     int type;
-    float _pad0;
+    int matIdx;
 };
 
-struct Sphere { // 16 bytes
-    vec3 center;
-    float radius;
+struct Material {
+    vec3 color;
+    float reflectivity;
+    float translucency;
+    float emission;
+    float refractiveIndex;
 };
 
 struct Hit {
@@ -53,6 +61,8 @@ layout (std430, binding = 0) buffer Triangles { Triangle triangles[]; };
 layout (std430, binding = 1) buffer Spheres { Sphere spheres[]; };
 
 layout (std430, binding = 2) buffer BVH { Node nodes[]; };
+
+layout (std430, binding = 3) buffer Materials { Material materials[]; };
 
 float findTriangleIntersection(vec3 rayOrigin, vec3 rayDir, int i) {
     Triangle tri = triangles[i];
@@ -100,6 +110,15 @@ bool intersectAABB(vec3 rayOri, vec3 rayDir, vec3 minBound, vec3 maxBound) {
     return tfar >= tclose && tfar >= 0.0;
 }
 
+float intersect(vec3 rayOri, vec3 rayDir, Node n) {
+    if (n.type == 0) {
+        return findTriangleIntersection(rayOri, rayDir, n.idx);
+    } else if (n.type == 1) {
+        return findSphereIntersection(rayOri, rayDir, n.idx);
+    }
+    return MAXILON;
+}
+
 Hit traverseBVH(vec3 rayOri, vec3 rayDir) {
     float closestT = MAXILON;
     int closestN = -1;
@@ -112,12 +131,7 @@ Hit traverseBVH(vec3 rayOri, vec3 rayDir) {
 
         if (!intersectAABB(rayOri, rayDir, node.min, node.max)) continue;
         if (node.idx >= 0) {
-            float t;
-            if (node.type == 0) {
-                t = findTriangleIntersection(rayOri, rayDir, node.idx);
-            } else {
-                t = findSphereIntersection(rayOri, rayDir, node.idx);
-            }
+            float t = intersect(rayOri, rayDir, node);
             if (t > 0.0 && t < closestT) {
                 closestT = t;
                 closestN = nodeIdx;
@@ -136,8 +150,10 @@ Hit traverseBVH(vec3 rayOri, vec3 rayDir) {
 
 vec4 getColor(vec3 rayOri, vec3 rayDir) {
     Hit hit = traverseBVH(rayOri, rayDir);
-    if (hit.t == MAXILON) return vec4(0.5, 0.7, 1.0, 1.0);
-    return vec4(1.0);
+    Node node = nodes[hit.nodeIdx];
+    Material mat = materials[node.matIdx];
+    if (hit.t == MAXILON) return vec4(0.2);
+    return vec4(mat.color, 1.0);
 }
 
 void main() {
