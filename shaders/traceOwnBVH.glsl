@@ -1,6 +1,7 @@
 #version 430 core
 
 const float EPSILON = 1e-6;
+const float MINSILON = 1e-3;
 const float MAXILON = 1e6;
 const int MAX_STACK_SIZE = 128;
 const int MAX_REFLECTION_DEPTH = 5;
@@ -29,7 +30,7 @@ struct Node { // 48 bytes
 };
 
 struct Material {
-    vec4 color;
+    vec3 color; float _pad0;
     float reflectivity;
     float translucency;
     float emission;
@@ -169,11 +170,11 @@ vec4 getColor(vec3 rayOri, vec3 rayDir) {
 
     vec3 Q = rayOri + hit.t * rayDir;
     vec3 N = getNormal(Q, node);
-    vec3 biasQ = Q + N * 1e-3;
+    vec3 biasQ = Q + N * MINSILON;
 
 
     float diff = max(dot(N, normalize(lightPos - Q)), 0.0);
-    vec3 color = mat.color.rgb * diff;
+    vec3 color = mat.color * diff;
 
     //TODO: reflections
     if (mat.reflectivity > 0.0) {
@@ -188,8 +189,8 @@ vec4 getColor(vec3 rayOri, vec3 rayDir) {
             Material currMat = materials[reflectNode.matIdx];
             vec3 currN = getNormal(currQ, reflectNode);
             float currDiff = max(dot(currN, normalize(lightPos - currQ)), 0.0);
-            currOri = currQ + currN * 1e-3;
-            accumColor += (currMat.color.rgb * pow(currMat.reflectivity, bounce + 2)) * currDiff;
+            currOri = currQ + currN * MINSILON;
+            accumColor += (currMat.color * pow(currMat.reflectivity, bounce + 1)) * currDiff;
             if (currMat.reflectivity <= 0.0) break;
             currDir = reflect(currDir, currN);
         }
@@ -199,7 +200,7 @@ vec4 getColor(vec3 rayOri, vec3 rayDir) {
     //TODO: refractions
 
     //TODO: emission
-    color += mat.color.rgb * mat.emission;
+    color += mat.color * mat.emission;
 
     return vec4(color, 1.0);
 }

@@ -13,6 +13,10 @@
 using namespace glm;
 using namespace std;
 
+#define N 10
+#define DEBUG 0
+int WIDTH = 800, HEIGHT = 600;
+
 struct Tri { //TODO: compact this
     vec4 v0;
     vec4 v1;
@@ -44,7 +48,6 @@ struct Node { //TODO: compact this
     int materialIdx;
 };
 
-
 static_assert(sizeof(Tri) == 64, "Tri size incorrect");
 static_assert(sizeof(Node) == 48, "Node size incorrect");
 static_assert(sizeof(Sph) == 16, "Sphere size incorrect");
@@ -63,8 +66,6 @@ struct Light {
     float intensity;
 };
 
-#define N 10
-int WIDTH = 800, HEIGHT = 600;
 vector<Node> nodes;
 vector<Tri> triangles;
 vector<Sph> spheres;
@@ -213,7 +214,7 @@ void buildNodeTopDown(int idx, vector<Type> idxs) { //TODO: consider BVH8
         nodes[idx].type = t.type;
         nodes[idx].materialIdx = rnd(0, materials.size());
     } else {
-        //! extent calculated before min/max are set, thus axis is always 0
+        //! extent calculated before min/max are set, thus axis is always 0, very inefficient
         vec3 extent = nodes[idx].max - nodes[idx].min; 
         int axis = 0;
         if (extent.y > extent.x) axis = 1;
@@ -289,10 +290,12 @@ void init(GLuint triSSBO, GLuint sphSSBO, GLuint bvhSSBO) {
         triangles.push_back(tri);
         allIndices.push_back({i, 0});
 
+        #if (DEBUG == 1)
         cout << "Triangle " << i << ": \n";
         cout << "  v0: (" << tri.v0.x << ", " << tri.v0.y << ", " << tri.v0.z << ")\n";
         cout << "  v1: (" << tri.v1.x << ", " << tri.v1.y << ", " << tri.v1.z << ")\n";
-        cout << "  v2: (" << tri.v2.x << ", " << tri.v2.y << ", " << tri.v2.z << ")\n";
+        cout << "  v2: (" << tri.v2.x << ", " << tri.v2.y << ", " << tri.v2.z << ")\n"; 
+        #endif
     }
     
     glGenBuffers(1, &triSSBO);
@@ -308,9 +311,11 @@ void init(GLuint triSSBO, GLuint sphSSBO, GLuint bvhSSBO) {
         spheres.push_back(sph);
         allIndices.push_back({i, 1});
 
+        #if (DEBUG == 1)
         cout << "Sphere " << i << ": \n";
         cout << "  center: (" << sph.center.x << ", " << sph.center.y << ", " << sph.center.z << ")\n";
         cout << "  radius: " << sph.radius << "\n";
+        #endif
     }
 
     glGenBuffers(1, &sphSSBO);
@@ -386,6 +391,10 @@ int main() {
     glBindBufferBase(GL_UNIFORM_BUFFER, 2, mouseUBO); // binding = 2 for UBO
     glBindBuffer(GL_UNIFORM_BUFFER, 0);
 
+    // send texture to shader
+    string texturePath = "../textures/circle.png";
+
+
     Material defaultMat = { vec4(1.0f, 1.0f, 1.0f, 1.0f), 0.0f, 0.0f, 0.0f, 1.0f };
     materials.push_back(defaultMat);
 
@@ -394,6 +403,9 @@ int main() {
 
     Material translucentBlue = { vec4(0.0f, 0.0f, 1.0f, 1.0f), 0.1f, 0.8f, 0.0f, 1.5f };
     materials.push_back(translucentBlue);
+
+    Material emissiveGreen = { vec4(0.0f, 1.0f, 0.0f, 1.0f), 0.0f, 0.0f, 0.5f, 1.0f };
+    materials.push_back(emissiveGreen);
 
     GLuint materialSSBO;
     glGenBuffers(1, &materialSSBO);
@@ -405,14 +417,8 @@ int main() {
     float initialTime = glfwGetTime();
     GLuint triSSBO, sphSSBO, bvhSSBO;
     init(triSSBO, sphSSBO, bvhSSBO);
-    for (Tri& tri : triangles) {
-        tri.c = vec4(rnd(0.1f, 1.0f), rnd(0.1f, 1.0f), rnd(0.1f, 1.0f), 1.0f);
-    }
-    glBindBuffer(GL_SHADER_STORAGE_BUFFER, triSSBO);
-    glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, triangles.size() * sizeof(Tri), triangles.data());
-    glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 
-
+    #if (DEBUG == 1)
     cout << "BVH build time: " << (glfwGetTime() - initialTime) << " seconds\n";
     for (Node& n : nodes) {
         string type = (n.type == 0) ? "⚠️" : (n.type == 1) ? "⭕" : "🌲";
@@ -421,6 +427,7 @@ int main() {
         cout << "  Max: (" << n.max.x << ", " << n.max.y << ", " << n.max.z << ")\n";
         cout << "  Extent: (" << (n.max.x - n.min.x) << ", " << (n.max.y - n.min.y) << ", " << (n.max.z - n.min.z) << ")\n";
     }
+    #endif
 
     int nbFrames = 0;
     double lastTime = glfwGetTime();
@@ -474,10 +481,9 @@ int main() {
             double fps = double(nbFrames) / (currentTime - lastTime);
             double frameTimeMs = 1000.0 / fps;
 
-            string title = "Raytracer - " +
-                to_string((int)fps) + " FPS | " +
-                to_string(frameTimeMs).substr(0, 5) + " ms/frame";
-            glfwSetWindowTitle(window, title.c_str());
+            stringstream title;
+            title << "Raytracer - " << fps << " FPS (" << frameTimeMs << " ms/frame)";
+            glfwSetWindowTitle(window, title.str().c_str());
 
             nbFrames = 0;
             lastTime = currentTime;
