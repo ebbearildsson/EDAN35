@@ -2,6 +2,8 @@
 
 const float EPSILON = 1e-6;
 const float MAXILON = 1e6;
+const int MAX_STACK_SIZE = 128;
+const int MAX_REFLECTION_DEPTH = 5;
 
 struct Triangle { // 64 bytes
     vec3 v0; float _pad0;
@@ -27,7 +29,7 @@ struct Node { // 48 bytes
 };
 
 struct Material {
-    vec3 color;
+    vec4 color;
     float reflectivity;
     float translucency;
     float emission;
@@ -148,12 +150,58 @@ Hit traverseBVH(vec3 rayOri, vec3 rayDir) {
     return hit;
 }
 
+vec3 getNormal(vec3 point, Node node) {
+    if (node.type == 0) {
+        Triangle tri = triangles[node.idx];
+        return normalize(cross(tri.v1 - tri.v0, tri.v2 - tri.v0));
+    } else if (node.type == 1) {
+        Sphere sph = spheres[node.idx];
+        return normalize(point - sph.center);
+    }
+    return vec3(0.0);
+}
+
 vec4 getColor(vec3 rayOri, vec3 rayDir) {
     Hit hit = traverseBVH(rayOri, rayDir);
+    if (hit.t == MAXILON) return vec4(0.2);
     Node node = nodes[hit.nodeIdx];
     Material mat = materials[node.matIdx];
-    if (hit.t == MAXILON) return vec4(0.2);
-    return vec4(mat.color, 1.0);
+
+    vec3 Q = rayOri + hit.t * rayDir;
+    vec3 N = getNormal(Q, node);
+    vec3 biasQ = Q + N * 1e-3;
+
+
+    float diff = max(dot(N, normalize(lightPos - Q)), 0.0);
+    vec3 color = mat.color.rgb * diff;
+
+    //TODO: reflections
+    if (mat.reflectivity > 0.0) {
+        vec3 currDir = reflect(rayDir, N);
+        vec3 currOri = biasQ;
+        vec3 accumColor = vec3(0.0);
+        for (int bounce = 0; bounce < MAX_REFLECTION_DEPTH; bounce++) {
+            Hit reflectHit = traverseBVH(currOri, currDir);
+            if (reflectHit.t == MAXILON) break;
+            vec3 currQ = currOri + reflectHit.t * currDir;
+            Node reflectNode = nodes[reflectHit.nodeIdx];
+            Material currMat = materials[reflectNode.matIdx];
+            vec3 currN = getNormal(currQ, reflectNode);
+            float currDiff = max(dot(currN, normalize(lightPos - currQ)), 0.0);
+            currOri = currQ + currN * 1e-3;
+            accumColor += (currMat.color.rgb * pow(currMat.reflectivity, bounce + 2)) * currDiff;
+            if (currMat.reflectivity <= 0.0) break;
+            currDir = reflect(currDir, currN);
+        }
+        color += accumColor;
+    }
+
+    //TODO: refractions
+
+    //TODO: emission
+    color += mat.color.rgb * mat.emission;
+
+    return vec4(color, 1.0);
 }
 
 void main() {
