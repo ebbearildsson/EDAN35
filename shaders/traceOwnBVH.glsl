@@ -21,6 +21,11 @@ struct Node { // 48 bytes
     float _pad1;
 };
 
+struct Hit {
+    float t;
+    int nodeIdx;
+};
+
 layout (local_size_x = 8, local_size_y = 8) in;
 
 layout (rgba32f, binding = 0) uniform image2D imgOutput;
@@ -70,8 +75,9 @@ bool intersectAABB(vec3 rayOri, vec3 rayDir, vec3 minBound, vec3 maxBound) {
     return tfar >= tclose && tfar >= 0.0;
 }
 
-float traverseBVH(vec3 rayOri, vec3 rayDir) {
+Hit traverseBVH(vec3 rayOri, vec3 rayDir) {
     float closestT = MAXILON;
+    int closestN = -1;
     int stack[128];
     int stackPtr = 0;
     stack[stackPtr++] = 0;
@@ -82,31 +88,37 @@ float traverseBVH(vec3 rayOri, vec3 rayDir) {
         if (!intersectAABB(rayOri, rayDir, node.min, node.max)) continue;
         if (node.triIdx >= 0) {
             float t = findTriangleIntersection(rayOri, rayDir, node.triIdx);
-            if (t > 0.0 && t < closestT) closestT = t;
+            if (t > 0.0 && t < closestT) {
+                closestT = t;
+                closestN = nodeIdx;
+            }
         } else {
             if (node.rightIdx >= 0) stack[stackPtr++] = node.rightIdx;
             if (node.leftIdx >= 0)  stack[stackPtr++] = node.leftIdx;
         }
     }
 
-    return closestT;
+    Hit hit;
+    hit.t = closestT;
+    hit.nodeIdx = closestN;
+    return hit;
 }
 
 float intersectAllTriangles(vec3 rayOri, vec3 rayDir) {
     float closestT = MAXILON;
     for (int i = 0; i < triangles.length(); i++) {
         float t = findTriangleIntersection(rayOri, rayDir, i);
-        if (t > 0.0 && t < closestT) {
-            closestT = t;
-        }
+        if (t > 0.0 && t < closestT) closestT = t;
     }
     return closestT;
 }
 
 vec4 getColor(vec3 rayOri, vec3 rayDir) {
-    float t = traverseBVH(rayOri, rayDir);
-    if (t == MAXILON) return vec4(0.5, 0.7, 1.0, 1.0);
-    return vec4(1.0);
+    Hit hit = traverseBVH(rayOri, rayDir);
+    if (hit.t == MAXILON) return vec4(0.5, 0.7, 1.0, 1.0);
+    Triangle tri = triangles[nodes[hit.nodeIdx].triIdx];
+    vec3 color = tri.c.rgb;
+    return vec4(color, 1.0);
 }
 
 void main() {
