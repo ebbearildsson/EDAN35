@@ -13,26 +13,32 @@
 using namespace glm;
 using namespace std;
 
-struct Tri {
+struct Tri { //TODO: compact this
     vec4 v0;
     vec4 v1;
     vec4 v2;
     vec4 c; 
 };
 
-struct Node { // does not need to be compressed -> need info on which primitive anyways
+struct Node { //TODO: compact this
     vec3 min;
-    int triIdx;
+    int idx;
     vec3 max;
-    int ownIdx;
+    int ownIdx; //TODO: remove
     int left;
     int right;
-    float _pad0;
+    int type;
     float _pad1;
+};
+
+struct Sphere {
+    vec3 center;
+    float radius;
 };
 
 static_assert(sizeof(Tri) == 64, "Tri size incorrect");
 static_assert(sizeof(Node) == 48, "Node size incorrect");
+static_assert(sizeof(Sphere) == 16, "Sphere size incorrect");
 
 struct Camera {
     vec3 position;
@@ -48,10 +54,11 @@ struct Light {
     float intensity;
 };
 
-#define N 100
+#define N 10
 int WIDTH = 800, HEIGHT = 600;
 vector<Node> nodes;
 vector<Tri> triangles;
+vector<Sphere> spheres;
 
 string loadFile(const string& path) {
     ifstream file(path);
@@ -160,26 +167,45 @@ void createCamera(GLuint &cameraUBO, Camera &cam) {
     glBindBuffer(GL_UNIFORM_BUFFER, 0);
 }
 
-void buildNodeTopDown(int idx, vector<int> idxs) {
+struct Type {
+    int idx;
+    int type; // 0 = triangle, 1 = sphere
+};
+
+void buildNodeTopDown(int idx, vector<Type> idxs) { //TODO: consider BVH8
     Node node;
-    node.triIdx = -1;
+    node.idx = -1;
+    node.type = -1;
     node.ownIdx = idx;
     node.left = -1;
     node.right = -1;
     nodes.push_back(node);
     if (idxs.size() == 1) {
-        int triIdx = idxs[0];
-        nodes[idx].min = min(triangles[triIdx].v0, min(triangles[triIdx].v1, triangles[triIdx].v2));
-        nodes[idx].max = max(triangles[triIdx].v0, max(triangles[triIdx].v1, triangles[triIdx].v2));
-        nodes[idx].triIdx = triIdx;
+        Type t = idxs[0];
+        if (t.type == 0) {
+            Tri& tri = triangles[t.idx];
+            nodes[idx].min = min(tri.v0, min(tri.v1, tri.v2));
+            nodes[idx].max = max(tri.v0, max(tri.v1, tri.v2));
+        } else if (t.type == 1) {
+            Sphere& sph = spheres[t.idx];
+            nodes[idx].min = sph.center - vec3(sph.radius);
+            nodes[idx].max = sph.center + vec3(sph.radius);
+        }
+        nodes[idx].idx = t.idx;
+        nodes[idx].type = t.type;
     } else {
-        vec3 extent = nodes[idx].max - nodes[idx].min;
+        //! extent calculated before min/max are set, thus axis is always 0
+        vec3 extent = nodes[idx].max - nodes[idx].min; 
         int axis = 0;
         if (extent.y > extent.x) axis = 1;
         if (extent.z > extent[axis]) axis = 2;
         
-        vector<int> leftIdxs, rightIdxs;
-        sort(idxs.begin(), idxs.end(), [axis](int a, int b) { return triangles[a].c[axis] < triangles[b].c[axis]; });
+        vector<Type> leftIdxs, rightIdxs;
+        sort(idxs.begin(), idxs.end(), [axis](Type a, Type b) { 
+            vec3 ac = a.type ? spheres[a.idx].center : triangles[a.idx].c;
+            vec3 bc = b.type ? spheres[b.idx].center : triangles[b.idx].c;
+            return ac[axis] < bc[axis]; 
+        });
         int mid = idxs.size() / 2;
         leftIdxs.insert(leftIdxs.end(), idxs.begin(), idxs.begin() + mid);
         rightIdxs.insert(rightIdxs.end(), idxs.begin() + mid, idxs.end());     
@@ -211,10 +237,16 @@ void buildNodeTopDown(int idx, vector<int> idxs) {
 
 void tightenBounds(int index) {
     Node* node = &nodes[index];
-    if (node->triIdx != -1) {
-        int triIndex = node->triIdx;
-        node->min = min(triangles[triIndex].v0, min(triangles[triIndex].v1, triangles[triIndex].v2));
-        node->max = max(triangles[triIndex].v0, max(triangles[triIndex].v1, triangles[triIndex].v2));
+    if (node->idx != -1) {
+        if (node->type == 0) {
+            Tri& tri = triangles[node->idx];
+            node->min = min(tri.v0, min(tri.v1, tri.v2));
+            node->max = max(tri.v0, max(tri.v1, tri.v2));
+        } else if (node->type == 1) {
+            Sphere& sph = spheres[node->idx];
+            node->min = sph.center - vec3(sph.radius);
+            node->max = sph.center + vec3(sph.radius);
+        }
     } else {
         tightenBounds(node->left);
         tightenBounds(node->right);
@@ -227,8 +259,8 @@ float rnd(float min, float max) {
     return ((float)rand() / RAND_MAX) * (max - min) + min;
 }
 
-void init(GLuint triSSBO, GLuint bvhSSBO) {
-    vector<int> allIndices;
+void init(GLuint triSSBO, GLuint sphSSBO, GLuint bvhSSBO) {
+    vector<Type> allIndices;
     for (int i = 0; i < N; i++) {
         Tri tri;
         vec3 j0 = vec3(rnd(-3.0f, 3.0f), rnd(-3.0f, 3.0f), rnd(-3.0f, 3.0f));
@@ -239,7 +271,7 @@ void init(GLuint triSSBO, GLuint bvhSSBO) {
         tri.v2 = vec4(j0 + j2, 0.0f);
         tri.c = (tri.v0 + tri.v1 + tri.v2) / 3.0f;
         triangles.push_back(tri);
-        allIndices.push_back(i);
+        allIndices.push_back({i, 0});
 
         cout << "Triangle " << i << ": \n";
         cout << "  v0: (" << tri.v0.x << ", " << tri.v0.y << ", " << tri.v0.z << ")\n";
@@ -253,13 +285,31 @@ void init(GLuint triSSBO, GLuint bvhSSBO) {
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, triSSBO); // binding = 0 for SSBO
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 
+    for (int i = 0; i < N; i++) {
+        Sphere sph;
+        sph.center = vec3(rnd(-3.0f, 3.0f), rnd(-3.0f, 3.0f), rnd(-3.0f, 3.0f));
+        sph.radius = rnd(0.1f, 0.5f);
+        spheres.push_back(sph);
+        allIndices.push_back({i, 1});
+
+        cout << "Sphere " << i << ": \n";
+        cout << "  center: (" << sph.center.x << ", " << sph.center.y << ", " << sph.center.z << ")\n";
+        cout << "  radius: " << sph.radius << "\n";
+    }
+
+    glGenBuffers(1, &sphSSBO);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, sphSSBO);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, spheres.size() * sizeof(Sphere), spheres.data(), GL_DYNAMIC_DRAW);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, sphSSBO); // binding = 1 for SSBO
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+
     buildNodeTopDown(0, allIndices);
     tightenBounds(0);
 
     glGenBuffers(1, &bvhSSBO);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, bvhSSBO);
     glBufferData(GL_SHADER_STORAGE_BUFFER, nodes.size() * sizeof(Node), nodes.data(), GL_DYNAMIC_DRAW);
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, bvhSSBO); // binding = 1 for SSBO
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, bvhSSBO); // binding = 2 for SSBO
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 }
 
@@ -321,8 +371,8 @@ int main() {
     glBindBuffer(GL_UNIFORM_BUFFER, 0);
 
     float initialTime = glfwGetTime();
-    GLuint triSSBO, bvhSSBO;
-    init(triSSBO, bvhSSBO);
+    GLuint triSSBO, sphSSBO, bvhSSBO;
+    init(triSSBO, sphSSBO, bvhSSBO);
     for (Tri& tri : triangles) {
         tri.c = vec4(rnd(0.1f, 1.0f), rnd(0.1f, 1.0f), rnd(0.1f, 1.0f), 1.0f);
     }
@@ -333,7 +383,8 @@ int main() {
 
     cout << "BVH build time: " << (glfwGetTime() - initialTime) << " seconds\n";
     for (Node& n : nodes) {
-        cout << "Node " << n.ownIdx << ": triIndex=" << n.triIdx << ", left=" << n.left << ", right=" << n.right << "\n";
+        string type = (n.type == 0) ? "⚠️" : (n.type == 1) ? "⭕" : "🌲";
+        cout << "Node " << n.ownIdx << ": Index=" << n.idx << ", type=" << type << ", left=" << n.left << ", right=" << n.right << "\n";
         cout << "  Min: (" << n.min.x << ", " << n.min.y << ", " << n.min.z << ")\n";
         cout << "  Max: (" << n.max.x << ", " << n.max.y << ", " << n.max.z << ")\n";
         cout << "  Extent: (" << (n.max.x - n.min.x) << ", " << (n.max.y - n.min.y) << ", " << (n.max.z - n.min.z) << ")\n";

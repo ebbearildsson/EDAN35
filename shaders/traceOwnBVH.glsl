@@ -12,13 +12,18 @@ struct Triangle { // 64 bytes
 
 struct Node { // 48 bytes
     vec3 min;
-    int triIdx;
+    int idx;
     vec3 max;
     int ownIdx;
     int leftIdx;
     int rightIdx;
+    int type;
     float _pad0;
-    float _pad1;
+};
+
+struct Sphere { // 16 bytes
+    vec3 center;
+    float radius;
 };
 
 struct Hit {
@@ -45,7 +50,9 @@ layout (std140, binding = 2) uniform Mouse { vec2 mousePos; };
 
 layout (std430, binding = 0) buffer Triangles { Triangle triangles[]; };
 
-layout (std430, binding = 1) buffer BVH { Node nodes[]; };
+layout (std430, binding = 1) buffer Spheres { Sphere spheres[]; };
+
+layout (std430, binding = 2) buffer BVH { Node nodes[]; };
 
 float findTriangleIntersection(vec3 rayOrigin, vec3 rayDir, int i) {
     Triangle tri = triangles[i];
@@ -63,6 +70,24 @@ float findTriangleIntersection(vec3 rayOrigin, vec3 rayDir, int i) {
     if (v < 0.0 || u + v > 1.0) return MAXILON;
     float t = f * dot(edge2, q);
     return (t > EPSILON) ? t : MAXILON;
+}
+
+float findSphereIntersection(vec3 rayOri, vec3 rayDir, int i) {
+    Sphere sph = spheres[i];
+    vec3 oc = rayOri - sph.center;
+    float a = dot(rayDir, rayDir);
+    float b = 2.0 * dot(oc, rayDir);
+    float c = dot(oc, oc) - sph.radius * sph.radius;
+    float d = b * b - 4.0 * a * c;
+    if (d < 0.0) return MAXILON;
+
+    float sqrtD = sqrt(d);
+    float t0 = (-b - sqrtD) / (2.0 * a);
+    float t1 = (-b + sqrtD) / (2.0 * a);
+
+    if (t0 > EPSILON) return t0;
+    if (t1 > EPSILON) return t1;
+    return MAXILON;
 }
 
 bool intersectAABB(vec3 rayOri, vec3 rayDir, vec3 minBound, vec3 maxBound) {
@@ -86,8 +111,13 @@ Hit traverseBVH(vec3 rayOri, vec3 rayDir) {
         Node node = nodes[nodeIdx];
 
         if (!intersectAABB(rayOri, rayDir, node.min, node.max)) continue;
-        if (node.triIdx >= 0) {
-            float t = findTriangleIntersection(rayOri, rayDir, node.triIdx);
+        if (node.idx >= 0) {
+            float t;
+            if (node.type == 0) {
+                t = findTriangleIntersection(rayOri, rayDir, node.idx);
+            } else {
+                t = findSphereIntersection(rayOri, rayDir, node.idx);
+            }
             if (t > 0.0 && t < closestT) {
                 closestT = t;
                 closestN = nodeIdx;
@@ -104,21 +134,10 @@ Hit traverseBVH(vec3 rayOri, vec3 rayDir) {
     return hit;
 }
 
-float intersectAllTriangles(vec3 rayOri, vec3 rayDir) {
-    float closestT = MAXILON;
-    for (int i = 0; i < triangles.length(); i++) {
-        float t = findTriangleIntersection(rayOri, rayDir, i);
-        if (t > 0.0 && t < closestT) closestT = t;
-    }
-    return closestT;
-}
-
 vec4 getColor(vec3 rayOri, vec3 rayDir) {
     Hit hit = traverseBVH(rayOri, rayDir);
     if (hit.t == MAXILON) return vec4(0.5, 0.7, 1.0, 1.0);
-    Triangle tri = triangles[nodes[hit.nodeIdx].triIdx];
-    vec3 color = tri.c.rgb;
-    return vec4(color, 1.0);
+    return vec4(1.0);
 }
 
 void main() {
