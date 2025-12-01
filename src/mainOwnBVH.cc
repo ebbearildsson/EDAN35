@@ -13,7 +13,12 @@
 using namespace glm;
 using namespace std;
 
-struct Tri { vec3 v0, v1, v2, c; };
+struct Tri {
+    vec4 v0;
+    vec4 v1;
+    vec4 v2;
+    vec4 c; 
+};
 
 struct Node { // does not need to be compressed -> need info on which primitive anyways
     vec3 min;
@@ -22,7 +27,12 @@ struct Node { // does not need to be compressed -> need info on which primitive 
     int ownIdx;
     int left;
     int right;
+    float _pad0;
+    float _pad1;
 };
+
+static_assert(sizeof(Tri) == 64, "Tri size incorrect");
+static_assert(sizeof(Node) == 48, "Node size incorrect");
 
 struct Camera {
     vec3 position;
@@ -38,10 +48,10 @@ struct Light {
     float intensity;
 };
 
-#define N 64
+#define N 100
 int WIDTH = 800, HEIGHT = 600;
 vector<Node> nodes;
-Tri tri[N];
+vector<Tri> triangles;
 
 string loadFile(const string& path) {
     ifstream file(path);
@@ -138,7 +148,7 @@ void createCamera(GLuint &cameraUBO, Camera &cam) {
     cam = {
         vec3(0.0f, 0.0f, 10.0f),
         radians(45.0f),
-        vec3(0.0f, -0.2f, -1.0f),
+        vec3(0.0f, 0.0f, -1.0f),
         (float)WIDTH / (float)HEIGHT,
         vec3(0.0f, 1.0f, 0.0f),
         0.0f
@@ -151,12 +161,16 @@ void createCamera(GLuint &cameraUBO, Camera &cam) {
 }
 
 void buildNodeTopDown(int idx, vector<int> idxs) {
-    Node node = { vec3(FLT_MAX), -1, vec3(-FLT_MAX), idx, -1, -1 };
+    Node node;
+    node.triIdx = -1;
+    node.ownIdx = idx;
+    node.left = -1;
+    node.right = -1;
     nodes.push_back(node);
     if (idxs.size() == 1) {
         int triIdx = idxs[0];
-        nodes[idx].min = min(tri[triIdx].v0, min(tri[triIdx].v1, tri[triIdx].v2));
-        nodes[idx].max = max(tri[triIdx].v0, max(tri[triIdx].v1, tri[triIdx].v2));
+        nodes[idx].min = min(triangles[triIdx].v0, min(triangles[triIdx].v1, triangles[triIdx].v2));
+        nodes[idx].max = max(triangles[triIdx].v0, max(triangles[triIdx].v1, triangles[triIdx].v2));
         nodes[idx].triIdx = triIdx;
     } else {
         vec3 extent = nodes[idx].max - nodes[idx].min;
@@ -165,7 +179,7 @@ void buildNodeTopDown(int idx, vector<int> idxs) {
         if (extent.z > extent[axis]) axis = 2;
         
         vector<int> leftIdxs, rightIdxs;
-        sort(idxs.begin(), idxs.end(), [axis](int a, int b) { return tri[a].c[axis] < tri[b].c[axis]; });
+        sort(idxs.begin(), idxs.end(), [axis](int a, int b) { return triangles[a].c[axis] < triangles[b].c[axis]; });
         int mid = idxs.size() / 2;
         leftIdxs.insert(leftIdxs.end(), idxs.begin(), idxs.begin() + mid);
         rightIdxs.insert(rightIdxs.end(), idxs.begin() + mid, idxs.end());     
@@ -183,15 +197,15 @@ void buildNodeTopDown(int idx, vector<int> idxs) {
         }
 
         if (leftIdx != -1 && rightIdx != -1) {
-            nodes[idx].max = max(nodes[nodes[idx].left].max, nodes[nodes[idx].right].max);
-            nodes[idx].min = min(nodes[nodes[idx].left].min, nodes[nodes[idx].right].min);
+            nodes[idx].max = max(nodes[leftIdx].max, nodes[rightIdx].max);
+            nodes[idx].min = min(nodes[leftIdx].min, nodes[rightIdx].min);
         } else if (leftIdx != -1) {
-            nodes[idx].max = nodes[nodes[idx].left].max;
-            nodes[idx].min = nodes[nodes[idx].left].min;
+            nodes[idx].max = nodes[leftIdx].max;
+            nodes[idx].min = nodes[leftIdx].min;
         } else if (rightIdx != -1) {
-            nodes[idx].max = nodes[nodes[idx].right].max;
-            nodes[idx].min = nodes[nodes[idx].right].min;
-        }
+            nodes[idx].max = nodes[rightIdx].max;
+            nodes[idx].min = nodes[rightIdx].min;
+        } 
     }
 }
 
@@ -199,8 +213,8 @@ void tightenBounds(int index) {
     Node* node = &nodes[index];
     if (node->triIdx != -1) {
         int triIndex = node->triIdx;
-        node->min = min(tri[triIndex].v0, min(tri[triIndex].v1, tri[triIndex].v2));
-        node->max = max(tri[triIndex].v0, max(tri[triIndex].v1, tri[triIndex].v2));
+        node->min = min(triangles[triIndex].v0, min(triangles[triIndex].v1, triangles[triIndex].v2));
+        node->max = max(triangles[triIndex].v0, max(triangles[triIndex].v1, triangles[triIndex].v2));
     } else {
         tightenBounds(node->left);
         tightenBounds(node->right);
@@ -209,29 +223,39 @@ void tightenBounds(int index) {
     }
 }
 
-void Init() {
-    for (int i = 0; i < N; i++) {
-        vec3 r0 = vec3(rand(), rand(), rand()) / (float)RAND_MAX;
-        vec3 r1 = vec3(rand()) / (float)RAND_MAX;
-        vec3 r2 = vec3(rand()) / (float)RAND_MAX;
-        tri[i].v0 = r0 * 9.0f - vec3(5.0f);
-        tri[i].v1 = tri[i].v0 + r1;
-        tri[i].v2 = tri[i].v0 + r2;
-        tri[i].c = (tri[i].v0 + tri[i].v1 + tri[i].v2) / 3.0f;
-    }
-    vector<int> allIndices;
-    for (int i = 0; i < N; ++i) allIndices.push_back(i);
-    buildNodeTopDown(0, allIndices);
-    tightenBounds(0);
+float rnd(float min, float max) {
+    return ((float)rand() / RAND_MAX) * (max - min) + min;
+}
 
-    GLuint triSSBO;
+void init(GLuint triSSBO, GLuint bvhSSBO) {
+    vector<int> allIndices;
+    for (int i = 0; i < N; i++) {
+        Tri tri;
+        vec3 j0 = vec3(rnd(-3.0f, 3.0f), rnd(-3.0f, 3.0f), rnd(-3.0f, 3.0f));
+        vec3 j1 = vec3(rnd(-0.5f, 0.5f), rnd(-0.5f, 0.5f), rnd(-0.5f, 0.5f));
+        vec3 j2 = vec3(rnd(-0.5f, 0.5f), rnd(-0.5f, 0.5f), rnd(-0.5f, 0.5f));
+        tri.v0 = vec4(j0, 0.0f);
+        tri.v1 = vec4(j0 + j1, 0.0f);
+        tri.v2 = vec4(j0 + j2, 0.0f);
+        tri.c = (tri.v0 + tri.v1 + tri.v2) / 3.0f;
+        triangles.push_back(tri);
+        allIndices.push_back(i);
+
+        cout << "Triangle " << i << ": \n";
+        cout << "  v0: (" << tri.v0.x << ", " << tri.v0.y << ", " << tri.v0.z << ")\n";
+        cout << "  v1: (" << tri.v1.x << ", " << tri.v1.y << ", " << tri.v1.z << ")\n";
+        cout << "  v2: (" << tri.v2.x << ", " << tri.v2.y << ", " << tri.v2.z << ")\n";
+    }
+    
     glGenBuffers(1, &triSSBO);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, triSSBO);
-    glBufferData(GL_SHADER_STORAGE_BUFFER, N * sizeof(Tri), tri, GL_DYNAMIC_DRAW);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, triangles.size() * sizeof(Tri), triangles.data(), GL_DYNAMIC_DRAW);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, triSSBO); // binding = 0 for SSBO
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 
-    GLuint bvhSSBO;
+    buildNodeTopDown(0, allIndices);
+    tightenBounds(0);
+
     glGenBuffers(1, &bvhSSBO);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, bvhSSBO);
     glBufferData(GL_SHADER_STORAGE_BUFFER, nodes.size() * sizeof(Node), nodes.data(), GL_DYNAMIC_DRAW);
@@ -297,15 +321,27 @@ int main() {
     glBindBuffer(GL_UNIFORM_BUFFER, 0);
 
     float initialTime = glfwGetTime();
-    Init();
+    GLuint triSSBO, bvhSSBO;
+    init(triSSBO, bvhSSBO);
+    for (Tri& tri : triangles) {
+        tri.c = vec4(rnd(0.1f, 1.0f), rnd(0.1f, 1.0f), rnd(0.1f, 1.0f), 1.0f);
+    }
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, triSSBO);
+    glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, triangles.size() * sizeof(Tri), triangles.data());
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+
+
     cout << "BVH build time: " << (glfwGetTime() - initialTime) << " seconds\n";
     for (Node& n : nodes) {
         cout << "Node " << n.ownIdx << ": triIndex=" << n.triIdx << ", left=" << n.left << ", right=" << n.right << "\n";
+        cout << "  Min: (" << n.min.x << ", " << n.min.y << ", " << n.min.z << ")\n";
+        cout << "  Max: (" << n.max.x << ", " << n.max.y << ", " << n.max.z << ")\n";
+        cout << "  Extent: (" << (n.max.x - n.min.x) << ", " << (n.max.y - n.min.y) << ", " << (n.max.z - n.min.z) << ")\n";
     }
-    
+
     int nbFrames = 0;
     double lastTime = glfwGetTime();
-    float lastFrame = 0.0f;
+    double lastFrame = 0.0f;
     int width, height;
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
@@ -333,7 +369,7 @@ int main() {
 
         nbFrames++;
         double currentTime = glfwGetTime();
-        float deltaTime = currentTime - lastFrame;
+        double deltaTime = currentTime - lastFrame;
         lastFrame = currentTime;
 
         double xpos, ypos;

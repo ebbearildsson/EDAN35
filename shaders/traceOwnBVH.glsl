@@ -3,15 +3,22 @@
 const float EPSILON = 1e-6;
 const float MAXILON = 1e6;
 
-struct Triangle { vec3 v0; vec3 v1; vec3 v2; vec3 c; };
+struct Triangle { // 64 bytes
+    vec3 v0; float _pad0;
+    vec3 v1; float _pad1;
+    vec3 v2; float _pad2;
+    vec3 c;  float _pad3;
+};
 
-struct Node {
+struct Node { // 48 bytes
     vec3 min;
     int triIdx;
     vec3 max;
-    float _pad1;
+    int ownIdx;
     int leftIdx;
     int rightIdx;
+    float _pad0;
+    float _pad1;
 };
 
 layout (local_size_x = 8, local_size_y = 8) in;
@@ -35,7 +42,8 @@ layout (std430, binding = 0) buffer Triangles { Triangle triangles[]; };
 
 layout (std430, binding = 1) buffer BVH { Node nodes[]; };
 
-float findTriangleIntersection(vec3 rayOrigin, vec3 rayDir, Triangle tri) {
+float findTriangleIntersection(vec3 rayOrigin, vec3 rayDir, int i) {
+    Triangle tri = triangles[i];
     vec3 edge1 = tri.v1 - tri.v0;
     vec3 edge2 = tri.v2 - tri.v0;
     vec3 h = cross(rayDir, edge2);
@@ -52,7 +60,7 @@ float findTriangleIntersection(vec3 rayOrigin, vec3 rayDir, Triangle tri) {
     return (t > EPSILON) ? t : MAXILON;
 }
 
-bool IntersectAABB(vec3 rayOri, vec3 rayDir, vec3 minBound, vec3 maxBound) {
+bool intersectAABB(vec3 rayOri, vec3 rayDir, vec3 minBound, vec3 maxBound) {
     vec3 tlow = (minBound - rayOri) / rayDir;
     vec3 thigh = (maxBound - rayOri) / rayDir;
     vec3 tmin = min(tlow, thigh);
@@ -67,15 +75,13 @@ float traverseBVH(vec3 rayOri, vec3 rayDir) {
     int stack[128];
     int stackPtr = 0;
     stack[stackPtr++] = 0;
-
     while (stackPtr > 0) {
         int nodeIdx = stack[--stackPtr];
         Node node = nodes[nodeIdx];
 
-        if (!IntersectAABB(rayOri, rayDir, node.min, node.max)) continue;
-
+        if (!intersectAABB(rayOri, rayDir, node.min, node.max)) continue;
         if (node.triIdx >= 0) {
-            float t = findTriangleIntersection(rayOri, rayDir, triangles[node.triIdx]);
+            float t = findTriangleIntersection(rayOri, rayDir, node.triIdx);
             if (t > 0.0 && t < closestT) closestT = t;
         } else {
             if (node.rightIdx >= 0) stack[stackPtr++] = node.rightIdx;
@@ -83,6 +89,17 @@ float traverseBVH(vec3 rayOri, vec3 rayDir) {
         }
     }
 
+    return closestT;
+}
+
+float intersectAllTriangles(vec3 rayOri, vec3 rayDir) {
+    float closestT = MAXILON;
+    for (int i = 0; i < triangles.length(); i++) {
+        float t = findTriangleIntersection(rayOri, rayDir, i);
+        if (t > 0.0 && t < closestT) {
+            closestT = t;
+        }
+    }
     return closestT;
 }
 
