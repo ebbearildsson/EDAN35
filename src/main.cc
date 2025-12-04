@@ -202,7 +202,7 @@ bool processInput(GLFWwindow* window, Camera* cam, float deltaTime) {
 }
 
 void createLights() {
-    Light light = { vec3(0.0f, 2.5f, 2.5f), 1.0f};
+    Light light = { vec3(0.0f, 2.5f, -2.5f), 1.0f};
 
     GLuint lightUBO;
     glGenBuffers(1, &lightUBO);
@@ -214,9 +214,9 @@ void createLights() {
 
 void createCamera(GLuint &cameraUBO, Camera &cam) {
     cam = {
-        vec3(0.0f, 0.0f, 10.0f),
+        vec3(0.0f, 0.0f, -10.0f),
         radians(45.0f),
-        vec3(0.0f, 0.0f, -1.0f),
+        vec3(0.0f, 0.0f, 1.0f),
         (float)WIDTH / (float)HEIGHT,
         vec3(0.0f, 1.0f, 0.0f),
         0.0f

@@ -5,21 +5,22 @@ const float MINSILON = 1e-3;
 const float MAXILON = 1e6;
 const int MAX_STACK_SIZE = 128;
 const int MAX_REFLECTION_DEPTH = 5;
+const float MAX_RAY_DISTANCE = 200.0;
 const float MAX_RAY_DENSITY = 100.0;
 
-struct Triangle { // 64 bytes
+struct Triangle { //TODO: compact this better
     vec3 v0; float _pad0;
     vec3 v1; float _pad1;
     vec3 v2; float _pad2;
     vec3 c;  float _pad3;
 };
 
-struct Sphere { // 16 bytes
+struct Sphere {
     vec3 center;
     float radius;
 };
 
-struct Node { // 48 bytes
+struct Node { //TODO: compact this better
     vec3 min;
     int idx;
     vec3 max;
@@ -118,6 +119,7 @@ bool intersectAABB(vec3 rayOri, vec3 rayDir, vec3 minBound, vec3 maxBound) {
     return tfar >= tclose && tfar >= 0.0;
 }
 
+//TODO: Add more primitive types
 float intersect(vec3 rayOri, vec3 rayDir, Node n) {
     if (n.type == 0) {
         return findTriangleIntersection(rayOri, rayDir, n.idx);
@@ -127,6 +129,7 @@ float intersect(vec3 rayOri, vec3 rayDir, Node n) {
     return MAXILON;
 }
 
+//TODO: Add more primitive types
 vec3 getNormal(vec3 point, Node node) {
     if (node.type == 0) {
         Triangle tri = triangles[node.idx];
@@ -181,7 +184,7 @@ vec4 getColor(vec3 rayOri, vec3 rayDir) {
     float diff = max(dot(hit.N, normalize(lightPos - hit.Q)), 0.0);
     vec3 color = hit.mat.color * diff;
 
-    //TODO: reflections
+    //TODO: combine reflections and refractions, maybe use stack instead of loops
     if (hit.mat.reflectivity > 0.0) {
         vec3 currDir = reflect(rayDir, hit.N);
         vec3 currOri = biasQ;
@@ -198,7 +201,22 @@ vec4 getColor(vec3 rayOri, vec3 rayDir) {
         color += accumColor;
     }
 
-    //TODO: refractions
+    if (hit.mat.translucency > 0.0) {
+        vec3 currDir = refract(rayDir, hit.N, 1.0 / hit.mat.refractiveIndex);
+        vec3 currOri = hit.Q - hit.N * MINSILON;
+        vec3 accumColor = vec3(0.0);
+        for (int bounce = 0; bounce < MAX_REFLECTION_DEPTH; bounce++) {
+            Hit rHit = traverseBVH(currOri, currDir);
+            if (rHit.t == MAXILON) break;
+            float currDiff = max(dot(rHit.N, normalize(lightPos - rHit.Q)), 0.0);
+            currOri = rHit.Q - rHit.N * MINSILON;
+            accumColor += (rHit.mat.color * pow(rHit.mat.translucency, bounce + 1)) * currDiff;
+            if (rHit.mat.translucency <= 0.0) break;
+            currDir = refract(currDir, -rHit.N, hit.mat.refractiveIndex);
+        }
+        color += accumColor;
+    }
+
 
     //TODO: emission
     color += hit.mat.color * hit.mat.emission;
@@ -214,8 +232,9 @@ void main() {
     vec3 rayDir = normalize(camForward + uv.x * tan(fov / 2.0) * normalize(cross(camForward, camUp)) + uv.y * tan(fov / 2.0) * camUp);
     int d = int(floor(distance(vec2(pixel), mousePos)));
     vec4 color = getColor(camPos, rayDir);
-    if (d < MAX_RAY_DENSITY) {
-        int ray_density = int((MAX_RAY_DENSITY - d) / 20);
+    if (d < MAX_RAY_DISTANCE) {
+        int ray_density = int((MAX_RAY_DISTANCE - d) / MAX_RAY_DENSITY); //TODO: Handle this better
+        ray_density = min(ray_density, 5);
         for (int y = -ray_density; y <= ray_density; y++) {
             for (int x = -ray_density; x <= ray_density; x++) {
                 if (x == 0 && y == 0) continue;
