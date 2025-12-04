@@ -233,6 +233,94 @@ struct Type {
     int type; // 0 = triangle, 1 = sphere
 };
 
+
+void buildNode2(int idx, vec3 minv, vec3 maxv, vector<Type> idxs) {
+    Node node;
+    node.idx = -1;
+    node.type = -1;
+    node.ownIdx = idx;
+    node.left = -1;
+    node.right = -1;
+    node.min = minv;
+    node.max = maxv;
+    nodes.push_back(node);
+    if (idxs.size() == 1) {
+        Type t = idxs[0];
+        if (t.type == 0) {
+            Tri& tri = triangles[t.idx];
+            nodes[idx].min = min(tri.v0, min(tri.v1, tri.v2));
+            nodes[idx].max = max(tri.v0, max(tri.v1, tri.v2));
+        } else if (t.type == 1) {
+            Sph& sph = spheres[t.idx];
+            nodes[idx].min = sph.center - vec3(sph.radius);
+            nodes[idx].max = sph.center + vec3(sph.radius);
+        }
+        nodes[idx].idx = t.idx;
+        nodes[idx].type = t.type;
+        nodes[idx].materialIdx = 0;//rnd(0, materials.size());
+    } else {
+        vec3 extent = maxv - minv; 
+        int axis = 0;
+        if (extent.y > extent.x) axis = 1;
+        if (extent.z > extent[axis]) axis = 2;
+        
+        float midPoint = nodes[idx].min[axis] + extent[axis] * 0.5f;
+
+        vector<Type> leftIdxs, rightIdxs;
+        for (Type t : idxs) {
+            vec3 center = t.type ? spheres[t.idx].center : triangles[t.idx].c;
+            if (center[axis] < midPoint) {
+                leftIdxs.push_back(t);
+            } else {
+                rightIdxs.push_back(t);
+            }
+        }
+
+        // create max and min for child nodes
+        vec3 leftMax = maxv;
+        vec3 leftMin = minv;
+        vec3 rightMax = maxv;
+        vec3 rightMin = minv;
+        leftMax[axis] = midPoint;
+        rightMin[axis] = midPoint;
+
+        int leftIdx, rightIdx = -1;
+
+        if (leftIdxs.empty() || rightIdxs.empty()) {
+            std::sort(idxs.begin(), idxs.end(), [axis](const Type& a, const Type& b) {
+                vec3 ac = a.type ? spheres[a.idx].center : vec3(triangles[a.idx].c);
+                vec3 bc = b.type ? spheres[b.idx].center : vec3(triangles[b.idx].c);
+                return ac[axis] < bc[axis];
+            });
+            size_t mid = idxs.size() / 2;
+            leftIdxs.assign(idxs.begin(), idxs.begin() + mid);
+            rightIdxs.assign(idxs.begin() + mid, idxs.end());
+        }
+        if (!leftIdxs.empty()) {
+            leftIdx = nodes.size();
+            buildNode2(leftIdx, leftMin, leftMax,leftIdxs);
+            nodes[idx].left = leftIdx;
+        }
+        if (!rightIdxs.empty()) {
+            rightIdx = nodes.size();
+            buildNode2(rightIdx, rightMin, rightMax, rightIdxs);  
+            nodes[idx].right = rightIdx;
+        }
+
+        if (leftIdx != -1 && rightIdx != -1) {
+            nodes[idx].max = max(nodes[leftIdx].max, nodes[rightIdx].max);
+            nodes[idx].min = min(nodes[leftIdx].min, nodes[rightIdx].min);
+        } else if (leftIdx != -1) {
+            nodes[idx].max = nodes[leftIdx].max;
+            nodes[idx].min = nodes[leftIdx].min;
+        } else if (rightIdx != -1) {
+            nodes[idx].max = nodes[rightIdx].max;
+            nodes[idx].min = nodes[rightIdx].min;
+        }
+    }
+}
+
+
 void buildNode(int idx, vector<Type> idxs) { //TODO: consider BVH8
     Node node;
     node.idx = -1;
@@ -310,8 +398,8 @@ void tightenBounds(int index) {
             node->max = sph.center + vec3(sph.radius);
         }
     } else {
-        tightenBounds(node->left);
-        tightenBounds(node->right);
+        if (node->left != -1) tightenBounds(node->left);
+        if (node->right != -1) tightenBounds(node->right);
         node->min = min(nodes[node->left].min, nodes[node->right].min);
         node->max = max(nodes[node->left].max, nodes[node->right].max);
     }
@@ -372,7 +460,8 @@ void init(GLuint triSSBO, GLuint sphSSBO, GLuint bvhSSBO) {
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, sphSSBO); // binding = 1 for SSBO
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 
-    buildNode(0, allIndices);
+    //buildNode(0, allIndices);
+    buildNode2(0, vec3(-10.0f), vec3(10.0f), allIndices);
     tightenBounds(0);
 
     glGenBuffers(1, &bvhSSBO);
