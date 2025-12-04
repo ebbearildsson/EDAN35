@@ -5,6 +5,7 @@ const float MINSILON = 1e-3;
 const float MAXILON = 1e6;
 const int MAX_STACK_SIZE = 128;
 const int MAX_REFLECTION_DEPTH = 5;
+const float MAX_RAY_DENSITY = 100.0;
 
 struct Triangle { // 64 bytes
     vec3 v0; float _pad0;
@@ -39,7 +40,10 @@ struct Material {
 
 struct Hit {
     float t;
-    int nodeIdx;
+    Node node;
+    Material mat;
+    vec3 Q;
+    vec3 N;
 };
 
 layout (local_size_x = 8, local_size_y = 8) in;
@@ -96,10 +100,11 @@ float findSphereIntersection(vec3 rayOri, vec3 rayDir, int i) {
 
     float sqrtD = sqrt(d);
     float t0 = (-b - sqrtD) / (2.0 * a);
-    float t1 = (-b + sqrtD) / (2.0 * a);
-
     if (t0 > EPSILON) return t0;
+
+    float t1 = (-b + sqrtD) / (2.0 * a);
     if (t1 > EPSILON) return t1;
+
     return MAXILON;
 }
 
@@ -120,6 +125,17 @@ float intersect(vec3 rayOri, vec3 rayDir, Node n) {
         return findSphereIntersection(rayOri, rayDir, n.idx);
     }
     return MAXILON;
+}
+
+vec3 getNormal(vec3 point, Node node) {
+    if (node.type == 0) {
+        Triangle tri = triangles[node.idx];
+        return normalize(cross(tri.v1 - tri.v0, tri.v2 - tri.v0));
+    } else if (node.type == 1) {
+        Sphere sph = spheres[node.idx];
+        return normalize(point - sph.center);
+    }
+    return vec3(0.0);
 }
 
 Hit traverseBVH(vec3 rayOri, vec3 rayDir) {
@@ -147,52 +163,37 @@ Hit traverseBVH(vec3 rayOri, vec3 rayDir) {
 
     Hit hit;
     hit.t = closestT;
-    hit.nodeIdx = closestN;
-    return hit;
-}
-
-vec3 getNormal(vec3 point, Node node) {
-    if (node.type == 0) {
-        Triangle tri = triangles[node.idx];
-        return normalize(cross(tri.v1 - tri.v0, tri.v2 - tri.v0));
-    } else if (node.type == 1) {
-        Sphere sph = spheres[node.idx];
-        return normalize(point - sph.center);
+    hit.node = nodes[closestN];
+    hit.mat = materials[hit.node.matIdx];
+    if (hit.t != MAXILON) {
+        hit.Q = rayOri + hit.t * rayDir;
+        hit.N = getNormal(hit.Q, hit.node);
     }
-    return vec3(0.0);
+    return hit;
 }
 
 vec4 getColor(vec3 rayOri, vec3 rayDir) {
     Hit hit = traverseBVH(rayOri, rayDir);
     if (hit.t == MAXILON) return vec4(0.2);
-    Node node = nodes[hit.nodeIdx];
-    Material mat = materials[node.matIdx];
 
-    vec3 Q = rayOri + hit.t * rayDir;
-    vec3 N = getNormal(Q, node);
-    vec3 biasQ = Q + N * MINSILON;
+    vec3 biasQ = hit.Q + hit.N * MINSILON;
 
-
-    float diff = max(dot(N, normalize(lightPos - Q)), 0.0);
-    vec3 color = mat.color * diff;
+    float diff = max(dot(hit.N, normalize(lightPos - hit.Q)), 0.0);
+    vec3 color = hit.mat.color * diff;
 
     //TODO: reflections
-    if (mat.reflectivity > 0.0) {
-        vec3 currDir = reflect(rayDir, N);
+    if (hit.mat.reflectivity > 0.0) {
+        vec3 currDir = reflect(rayDir, hit.N);
         vec3 currOri = biasQ;
         vec3 accumColor = vec3(0.0);
         for (int bounce = 0; bounce < MAX_REFLECTION_DEPTH; bounce++) {
-            Hit reflectHit = traverseBVH(currOri, currDir);
-            if (reflectHit.t == MAXILON) break;
-            vec3 currQ = currOri + reflectHit.t * currDir;
-            Node reflectNode = nodes[reflectHit.nodeIdx];
-            Material currMat = materials[reflectNode.matIdx];
-            vec3 currN = getNormal(currQ, reflectNode);
-            float currDiff = max(dot(currN, normalize(lightPos - currQ)), 0.0);
-            currOri = currQ + currN * MINSILON;
-            accumColor += (currMat.color * pow(currMat.reflectivity, bounce + 1)) * currDiff;
-            if (currMat.reflectivity <= 0.0) break;
-            currDir = reflect(currDir, currN);
+            Hit rHit = traverseBVH(currOri, currDir);
+            if (rHit.t == MAXILON) break;
+            float currDiff = max(dot(rHit.N, normalize(lightPos - rHit.Q)), 0.0);
+            currOri = rHit.Q + rHit.N * MINSILON;
+            accumColor += (rHit.mat.color * pow(rHit.mat.reflectivity, bounce + 1)) * currDiff;
+            if (rHit.mat.reflectivity <= 0.0) break;
+            currDir = reflect(currDir, rHit.N);
         }
         color += accumColor;
     }
@@ -200,7 +201,7 @@ vec4 getColor(vec3 rayOri, vec3 rayDir) {
     //TODO: refractions
 
     //TODO: emission
-    color += mat.color * mat.emission;
+    color += hit.mat.color * hit.mat.emission;
 
     return vec4(color, 1.0);
 }
@@ -211,8 +212,23 @@ void main() {
     uv = uv * 2.0 - 1.0;
     uv.x *= aspect;
     vec3 rayDir = normalize(camForward + uv.x * tan(fov / 2.0) * normalize(cross(camForward, camUp)) + uv.y * tan(fov / 2.0) * camUp);
-
+    int d = int(floor(distance(vec2(pixel), mousePos)));
     vec4 color = getColor(camPos, rayDir);
+    if (d < MAX_RAY_DENSITY) {
+        int ray_density = int((MAX_RAY_DENSITY - d) / 20);
+        for (int y = -ray_density; y <= ray_density; y++) {
+            for (int x = -ray_density; x <= ray_density; x++) {
+                if (x == 0 && y == 0) continue;
+                vec2 offset = vec2(float(x), float(y)) * 0.001;
+                vec2 offsetUV = uv + offset;
+                vec3 offsetRayDir = normalize(camForward + offsetUV.x * tan(fov / 2.0) * normalize(cross(camForward, camUp)) + offsetUV.y * tan(fov / 2.0) * camUp);
+                color += getColor(camPos, offsetRayDir);
+            }
+        }
+        float totalRays = float((2 * ray_density + 1) * (2 * ray_density + 1));
+        color /= totalRays;
+    }
+
 
     imageStore(imgOutput, pixel, color);
 }

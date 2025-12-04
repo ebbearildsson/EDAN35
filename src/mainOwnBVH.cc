@@ -394,20 +394,39 @@ int main() {
     // send texture to shader
     string texturePath = "../textures/circle.png";
 
-
-    Material defaultMat = { vec4(1.0f, 1.0f, 1.0f, 1.0f), 0.0f, 0.0f, 0.0f, 1.0f };
+    Material defaultMat;
+    defaultMat.color = vec4(1.0f, 1.0f, 1.0f, 1.0f);
+    defaultMat.reflectivity = 0.0f;
+    defaultMat.translucency = 0.0f;
+    defaultMat.emission = 0.0f;
+    defaultMat.refractiveIndex = 1.0f;
     materials.push_back(defaultMat);
 
-    Material reflectiveRed = { vec4(1.0f, 0.0f, 0.0f, 1.0f), 0.8f, 0.0f, 0.0f, 1.0f };
+    Material reflectiveRed;
+    reflectiveRed.color = vec4(1.0f, 0.0f, 0.0f, 1.0f);
+    reflectiveRed.reflectivity = 0.8f;
+    reflectiveRed.translucency = 0.0f;
+    reflectiveRed.emission = 0.0f;
+    reflectiveRed.refractiveIndex = 1.0f;
     materials.push_back(reflectiveRed);
 
-    Material translucentBlue = { vec4(0.0f, 0.0f, 1.0f, 1.0f), 0.1f, 0.8f, 0.0f, 1.5f };
+    Material translucentBlue;
+    translucentBlue.color = vec4(0.0f, 0.0f, 1.0f, 1.0f);
+    translucentBlue.reflectivity = 0.1f;
+    translucentBlue.translucency = 0.8f;
+    translucentBlue.emission = 0.0f;
+    translucentBlue.refractiveIndex = 1.5f;
     materials.push_back(translucentBlue);
 
-    Material emissiveGreen = { vec4(0.0f, 1.0f, 0.0f, 1.0f), 0.0f, 0.0f, 0.5f, 1.0f };
+    Material emissiveGreen;
+    emissiveGreen.color = vec4(0.0f, 1.0f, 0.0f, 1.0f);
+    emissiveGreen.reflectivity = 0.0f;
+    emissiveGreen.translucency = 0.0f;
+    emissiveGreen.emission = 0.5f;
+    emissiveGreen.refractiveIndex = 1.0f;
     materials.push_back(emissiveGreen);
 
-    GLuint materialSSBO;
+    GLuint triSSBO, sphSSBO, bvhSSBO, materialSSBO;
     glGenBuffers(1, &materialSSBO);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, materialSSBO);
     glBufferData(GL_SHADER_STORAGE_BUFFER, materials.size() * sizeof(Material), materials.data(), GL_DYNAMIC_DRAW);
@@ -415,7 +434,6 @@ int main() {
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0); 
 
     float initialTime = glfwGetTime();
-    GLuint triSSBO, sphSSBO, bvhSSBO;
     init(triSSBO, sphSSBO, bvhSSBO);
 
     #if (DEBUG == 1)
@@ -464,8 +482,8 @@ int main() {
 
         double xpos, ypos;
         glfwGetCursorPos(window, &xpos, &ypos);
-        if (xpos != mousePos.x || ypos != mousePos.y) {
-            mousePos = vec2(xpos, ypos);
+        if (xpos != mousePos.x || ypos != HEIGHT - mousePos.y) {
+            mousePos = vec2(xpos, HEIGHT - ypos);
             glBindBuffer(GL_UNIFORM_BUFFER, mouseUBO);
             glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(vec2), &mousePos);
             glBindBuffer(GL_UNIFORM_BUFFER, 0);
