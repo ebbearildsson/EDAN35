@@ -1,54 +1,53 @@
 #version 430 core
 
-const float EPSILON = 1e-3;
+const float EPSILON = 1e-6;
+const float MINSILON = 1e-3;
 const float MAXILON = 1e6;
+const int MAX_STACK_SIZE = 128;
+const int MAX_REFLECTION_DEPTH = 5;
+const float MAX_RAY_DENSITY = 100.0;
 
-struct Triangle {
-    vec3 v0;
-    float nx;
-    vec3 v1;
-    float ny;
-    vec3 v2;
-    float nz;
+struct Triangle { // 64 bytes
+    vec3 v0; float _pad0;
+    vec3 v1; float _pad1;
+    vec3 v2; float _pad2;
+    vec3 c;  float _pad3;
 };
 
-struct Sphere {
+struct Sphere { // 16 bytes
     vec3 center;
     float radius;
 };
 
-struct Node {
+struct Node { // 48 bytes
     vec3 min;
-    float _pad0;
+    int idx;
     vec3 max;
-    float _pad1;
-    int left;
-    int right;
-    int start;
-    int count;
+    int ownIdx;
+    int leftIdx;
+    int rightIdx;
+    int type;
+    int matIdx;
 };
 
-struct Mesh {
-    vec3 lowerLeftBack;
-    int offset;
-    vec3 upperRightFront;
-    int size;
-    vec3 color;
-    int type; // 0 = triangle mesh, 1 = sphere mesh
+struct Material {
+    vec3 color; float _pad0;
     float reflectivity;
-    float transperency;
-    float emmission;
-    float _pad;
+    float translucency;
+    float emission;
+    float refractiveIndex;
 };
 
 struct Hit {
-    vec3 n;
     float t;
-    vec3 _pad;
-    int m;
+    Node node;
+    Material mat;
+    vec3 Q;
+    vec3 N;
 };
 
 layout (local_size_x = 8, local_size_y = 8) in;
+
 layout (rgba32f, binding = 0) uniform image2D imgOutput;
 
 layout (std140, binding = 0) uniform CameraData {
@@ -60,34 +59,29 @@ layout (std140, binding = 0) uniform CameraData {
     float _pad;
 };
 
-layout (std140, binding = 1) uniform LightData {
-    vec3 lightPos;
-    float lightIntensity;
-};
+layout (std140, binding = 1) uniform LightData { vec3 lightPos; float lightIntensity; };
 
 layout (std140, binding = 2) uniform Mouse { vec2 mousePos; };
 
-layout (std430, binding = 1) buffer Triangles { Triangle triangles[]; };
+layout (std430, binding = 0) buffer Triangles { Triangle triangles[]; };
 
-layout (std430, binding = 2) buffer Meshes { Mesh meshes[]; };
+layout (std430, binding = 1) buffer Spheres { Sphere spheres[]; };
 
-layout (std430, binding = 3) buffer Spheres { Sphere spheres[]; };
+layout (std430, binding = 2) buffer BVH { Node nodes[]; };
 
-layout (std430, binding = 5) buffer BVH { Node nodes[]; };
+layout (std430, binding = 3) buffer Materials { Material materials[]; };
 
-float findTriangleIntersection(vec3 rayOrigin, vec3 rayDir, Triangle tri) {
+float findTriangleIntersection(vec3 rayOrigin, vec3 rayDir, int i) {
+    Triangle tri = triangles[i];
     vec3 edge1 = tri.v1 - tri.v0;
     vec3 edge2 = tri.v2 - tri.v0;
     vec3 h = cross(rayDir, edge2);
     float a = dot(edge1, h);
-
     if (abs(a) < EPSILON) return MAXILON;
-
     float f = 1.0 / a;
     vec3 s = rayOrigin - tri.v0;
     float u = f * dot(s, h);
     if (u < 0.0 || u > 1.0) return MAXILON;
-
     vec3 q = cross(s, edge1);
     float v = f * dot(rayDir, q);
     if (v < 0.0 || u + v > 1.0) return MAXILON;
@@ -95,14 +89,23 @@ float findTriangleIntersection(vec3 rayOrigin, vec3 rayDir, Triangle tri) {
     return (t > EPSILON) ? t : MAXILON;
 }
 
-float findSphereIntersection(vec3 rayOrigin, vec3 rayDir, Sphere sph) {
-    vec3 oc = rayOrigin - sph.center;
+float findSphereIntersection(vec3 rayOri, vec3 rayDir, int i) {
+    Sphere sph = spheres[i];
+    vec3 oc = rayOri - sph.center;
     float a = dot(rayDir, rayDir);
     float b = 2.0 * dot(oc, rayDir);
     float c = dot(oc, oc) - sph.radius * sph.radius;
-    float discriminant = b * b - 4.0 * a * c;
-    if (discriminant < 0.0) return MAXILON;
-    return (-b - sqrt(discriminant)) / (2.0 * a);
+    float d = b * b - 4.0 * a * c;
+    if (d < 0.0) return MAXILON;
+
+    float sqrtD = sqrt(d);
+    float t0 = (-b - sqrtD) / (2.0 * a);
+    if (t0 > EPSILON) return t0;
+
+    float t1 = (-b + sqrtD) / (2.0 * a);
+    if (t1 > EPSILON) return t1;
+
+    return MAXILON;
 }
 
 bool intersectAABB(vec3 rayOri, vec3 rayDir, vec3 minBound, vec3 maxBound) {
@@ -115,117 +118,117 @@ bool intersectAABB(vec3 rayOri, vec3 rayDir, vec3 minBound, vec3 maxBound) {
     return tfar >= tclose && tfar >= 0.0;
 }
 
-float traverseBVH(vec3 rayOri, vec3 rayDir) {
-    // BVH traversal logic would go here
+float intersect(vec3 rayOri, vec3 rayDir, Node n) {
+    if (n.type == 0) {
+        return findTriangleIntersection(rayOri, rayDir, n.idx);
+    } else if (n.type == 1) {
+        return findSphereIntersection(rayOri, rayDir, n.idx);
+    }
     return MAXILON;
 }
 
-Hit findClosestIntersection(vec3 rayOri, vec3 rayDir) {
-    float closestT = MAXILON;
-    int closestI;
-    int closestM;
-    for (int m = 0; m < meshes.length(); m++) {
-        Mesh mesh = meshes[m];
-        bool intersect = intersectAABB(rayOri, rayDir, mesh.lowerLeftBack, mesh.upperRightFront);
-        if (!intersect) continue;
+vec3 getNormal(vec3 point, Node node) {
+    if (node.type == 0) {
+        Triangle tri = triangles[node.idx];
+        return normalize(cross(tri.v1 - tri.v0, tri.v2 - tri.v0));
+    } else if (node.type == 1) {
+        Sphere sph = spheres[node.idx];
+        return normalize(point - sph.center);
+    }
+    return vec3(0.0);
+}
 
-        float t;
-        switch (mesh.type) {
-            case 0: // Triangle mesh
-                for (int i = mesh.offset; i <= mesh.offset + mesh.size; i++) {
-                    t = findTriangleIntersection(rayOri, rayDir, triangles[i]);
-                    if (t > 0.0 && t < closestT) {
-                        closestT = t;
-                        closestI = i;
-                        closestM = m;
-                    }
-                }
-                break;
-            case 1: // Sphere mesh
-                t = findSphereIntersection(rayOri, rayDir, spheres[mesh.offset]);
-                if (t > 0.0 && t < closestT) {
-                    closestT = t;
-                    closestI = mesh.offset;
-                    closestM = m;
-                }
-                break;
-            default:
-                continue;
+Hit traverseBVH(vec3 rayOri, vec3 rayDir) {
+    float closestT = MAXILON;
+    int closestN = -1;
+    int stack[MAX_STACK_SIZE];
+    int stackPtr = 0;
+    stack[stackPtr++] = 0;
+    while (stackPtr > 0) {
+        int nodeIdx = stack[--stackPtr];
+        Node node = nodes[nodeIdx];
+
+        if (!intersectAABB(rayOri, rayDir, node.min, node.max)) continue;
+        if (node.idx >= 0) {
+            float t = intersect(rayOri, rayDir, node);
+            if (t > 0.0 && t < closestT) {
+                closestT = t;
+                closestN = nodeIdx;
+            }
+        } else {
+            if (node.rightIdx >= 0) stack[stackPtr++] = node.rightIdx;
+            if (node.leftIdx >= 0)  stack[stackPtr++] = node.leftIdx;
         }
     }
 
     Hit hit;
     hit.t = closestT;
-    hit.m = closestM;
-    switch (meshes[closestM].type) {
-        case 0:
-            Triangle tri = triangles[closestI];
-            hit.n = vec3(tri.nx, tri.ny, tri.nz);
-            break;
-        case 1:
-            hit.n = normalize((rayOri + rayDir * closestT) - spheres[closestI].center);  
-            break;
-        default:
-            break;
+    hit.node = nodes[closestN];
+    hit.mat = materials[hit.node.matIdx];
+    if (hit.t != MAXILON) {
+        hit.Q = rayOri + hit.t * rayDir;
+        hit.N = getNormal(hit.Q, hit.node);
     }
-
     return hit;
 }
 
 vec4 getColor(vec3 rayOri, vec3 rayDir) {
-    Hit hit = findClosestIntersection(rayOri, rayDir);
-    
-    if (hit.t == MAXILON) return vec4(0.0);
+    Hit hit = traverseBVH(rayOri, rayDir);
+    if (hit.t == MAXILON) return vec4(0.2);
 
-    vec3 Q = rayOri + rayDir * hit.t;
-    vec3 lightDir = normalize(lightPos - Q);
-    float diff = max(dot(hit.n, lightDir), 0.0);
-    
-    vec3 biasQ = Q + hit.n * 1e-3;
+    vec3 biasQ = hit.Q + hit.N * MINSILON;
 
-    Hit shadowHit = findClosestIntersection(biasQ, lightDir);
-    if (shadowHit.t <= length(lightPos - Q)) return vec4(0.0);
-    
-    Mesh mesh = meshes[hit.m];
-    if (mesh.reflectivity > 0.0) {
-        const int MAX_REFLECTIONS = 3;
-        Mesh currMesh = mesh;
+    float diff = max(dot(hit.N, normalize(lightPos - hit.Q)), 0.0);
+    vec3 color = hit.mat.color * diff;
+
+    //TODO: reflections
+    if (hit.mat.reflectivity > 0.0) {
+        vec3 currDir = reflect(rayDir, hit.N);
         vec3 currOri = biasQ;
         vec3 accumColor = vec3(0.0);
-        vec3 currDir = reflect(rayDir, hit.n);
-        for (int bounce = 0; bounce < MAX_REFLECTIONS; bounce++) {
-            Hit reflectHit = findClosestIntersection(currOri, currDir);
-            if (reflectHit.t == MAXILON) break;
-            currMesh = meshes[reflectHit.m];
-            vec3 tempColor = accumColor;
-            float currDiff = max(dot(reflectHit.n, lightDir), 0.0);
-            currOri = currOri + currDir * reflectHit.t + reflectHit.n * 1e-3;
-            Hit shadowHit = findClosestIntersection(currOri, normalize(lightPos - currOri));
-            if (shadowHit.t <= length(lightPos - currOri)) currDiff = 0.0;
-            accumColor += (currMesh.color * pow(currMesh.reflectivity, bounce + 2)) * currDiff;
-            if (currMesh.reflectivity <= 0.0 || accumColor == tempColor) break;
-            currDir = reflect(currDir, reflectHit.n);
+        for (int bounce = 0; bounce < MAX_REFLECTION_DEPTH; bounce++) {
+            Hit rHit = traverseBVH(currOri, currDir);
+            if (rHit.t == MAXILON) break;
+            float currDiff = max(dot(rHit.N, normalize(lightPos - rHit.Q)), 0.0);
+            currOri = rHit.Q + rHit.N * MINSILON;
+            accumColor += (rHit.mat.color * pow(rHit.mat.reflectivity, bounce + 1)) * currDiff;
+            if (rHit.mat.reflectivity <= 0.0) break;
+            currDir = reflect(currDir, rHit.N);
         }
-
-        vec3 finalColor = mix(mesh.color, accumColor, mesh.reflectivity);
-        return vec4(finalColor * diff * lightIntensity, 1.0);
+        color += accumColor;
     }
-    
-    //return vec4(mesh.color, 1.0);
-    return vec4(mesh.color * diff * lightIntensity, 1.0);
-    //return vec4(abs(hit.n), 1.0);
-    //return vec4(((mesh.type + 1.0) / 2.0) * vec3(1.0), 1.0);
+
+    //TODO: refractions
+
+    //TODO: emission
+    color += hit.mat.color * hit.mat.emission;
+
+    return vec4(color, 1.0);
 }
 
 void main() {
     ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
-    ivec2 size = imageSize(imgOutput);
-    vec2 uv = (vec2(pixel) / vec2(size)) * 2.0 - 1.0;
+    vec2 uv = (vec2(pixel) + vec2(0.5)) / vec2(imageSize(imgOutput));
+    uv = uv * 2.0 - 1.0;
     uv.x *= aspect;
-
-    vec3 rayDir = normalize(camForward + uv.x * tan(fov / 2.0) * vec3(1.0, 0.0, 0.0) + uv.y * tan(fov / 2.0) * camUp);
-
+    vec3 rayDir = normalize(camForward + uv.x * tan(fov / 2.0) * normalize(cross(camForward, camUp)) + uv.y * tan(fov / 2.0) * camUp);
+    int d = int(floor(distance(vec2(pixel), mousePos)));
     vec4 color = getColor(camPos, rayDir);
+    if (d < MAX_RAY_DENSITY) {
+        int ray_density = int((MAX_RAY_DENSITY - d) / 20);
+        for (int y = -ray_density; y <= ray_density; y++) {
+            for (int x = -ray_density; x <= ray_density; x++) {
+                if (x == 0 && y == 0) continue;
+                vec2 offset = vec2(float(x), float(y)) * 0.001;
+                vec2 offsetUV = uv + offset;
+                vec3 offsetRayDir = normalize(camForward + offsetUV.x * tan(fov / 2.0) * normalize(cross(camForward, camUp)) + offsetUV.y * tan(fov / 2.0) * camUp);
+                color += getColor(camPos, offsetRayDir);
+            }
+        }
+        float totalRays = float((2 * ray_density + 1) * (2 * ray_density + 1));
+        color /= totalRays;
+    }
 
-    imageStore(imgOutput, ivec2(gl_GlobalInvocationID.xy), color);
+
+    imageStore(imgOutput, pixel, color);
 }

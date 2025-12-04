@@ -10,10 +10,47 @@
 #include <cmath>
 #include <vector>
 
-using glm::vec2;
-using glm::vec3;
-using glm::vec4;
-using std::vector;
+using namespace glm;
+using namespace std;
+
+#define N 10
+#define DEBUG 0
+int WIDTH = 800, HEIGHT = 600;
+
+struct Tri { //TODO: compact this
+    vec4 v0;
+    vec4 v1;
+    vec4 v2;
+    vec4 c; 
+};
+
+struct Sph {
+    vec3 center;
+    float radius;
+};
+
+struct Material { //TODO: compact this
+    vec4 color;
+    float reflectivity;
+    float translucency;
+    float emission;
+    float refractiveIndex;
+};
+
+struct Node { //TODO: compact this
+    vec3 min;
+    int idx;
+    vec3 max;
+    int ownIdx; //TODO: remove
+    int left;
+    int right;
+    int type;
+    int materialIdx;
+};
+
+static_assert(sizeof(Tri) == 64, "Tri size incorrect");
+static_assert(sizeof(Node) == 48, "Node size incorrect");
+static_assert(sizeof(Sph) == 16, "Sphere size incorrect");
 
 struct Camera {
     vec3 position;
@@ -24,72 +61,33 @@ struct Camera {
     float _pad;
 };
 
-struct bvhNode {
-    vec3 center;
-    int type;
-    int index;
-};
-
-struct Triangle {
-    vec3 v0;
-    vec3 v1;
-    vec3 v2;
-    vec3 n;
-};
-
-struct GPUTriangle {
-    vec3 v0;
-    float nx;
-    vec3 v1;
-    float ny;
-    vec3 v2;
-    float nz;
-};
-
-struct Sphere {
-    vec3 center;
-    float radius;
-};
-
-struct Node {
-    vec3 min;
-    int type;
-    vec3 max;
-    float _pad0;
-    int left;
-    int right;
-    int triIdx;
-    int count;
-};
-
-struct Mesh {
-    vec3 lowerLeftBack;
-    int offset;
-    vec3 upperRightFront;
-    int size;
-    vec3 color;
-    int type;
-    float reflectivity;
-    float transperency;
-    float emmission;
-    float _pad;
-};
-
 struct Light {
     vec3 direction;
     float intensity;
 };
 
-std::string loadFile(const std::string& path) {
-    std::ifstream file(path);
-    if (!file.is_open())
-        throw std::runtime_error("Failed to open file: " + path);
-    std::stringstream ss;
+vector<Node> nodes;
+vector<Tri> triangles;
+vector<Sph> spheres;
+vector<Material> materials;
+
+float rnd(float min, float max) {
+    return ((float)rand() / RAND_MAX) * (max - min) + min;
+}
+
+int rnd(int min, int max) {
+    return rand() % (max - min) + min;
+}
+
+string loadFile(const string& path) {
+    ifstream file(path);
+    if (!file.is_open()) throw runtime_error("Failed to open file: " + path);
+    stringstream ss;
     ss << file.rdbuf();
     return ss.str();
 }
 
-GLuint compileShader(GLenum type, const std::string& src) {
+GLuint compileShader(GLenum type, const string& src) {
     GLuint shader = glCreateShader(type);
     const char* csrc = src.c_str();
     glShaderSource(shader, 1, &csrc, nullptr);
@@ -99,13 +97,13 @@ GLuint compileShader(GLenum type, const std::string& src) {
     if (!success) {
         char info[512];
         glGetShaderInfoLog(shader, 512, nullptr, info);
-        std::cerr << "Shader compile error:\n" << info << std::endl;
+        cerr << "Shader compile error:\n" << info << endl;
     }
     return shader;
 }
 
-GLuint createProgram(const std::string& compPath) {
-    std::string src = loadFile(compPath);
+GLuint createProgram(const string& compPath) {
+    string src = loadFile(compPath);
     GLuint shader = compileShader(GL_COMPUTE_SHADER, src);
     GLuint prog = glCreateProgram();
     glAttachShader(prog, shader);
@@ -114,9 +112,9 @@ GLuint createProgram(const std::string& compPath) {
     return prog;
 }
 
-GLuint createQuadProgram(const std::string& vertPath, const std::string& fragPath) {
-    std::string vsrc = loadFile(vertPath);
-    std::string fsrc = loadFile(fragPath);
+GLuint createQuadProgram(const string& vertPath, const string& fragPath) {
+    string vsrc = loadFile(vertPath);
+    string fsrc = loadFile(fragPath);
     GLuint vsh = compileShader(GL_VERTEX_SHADER, vsrc);
     GLuint fsh = compileShader(GL_FRAGMENT_SHADER, fsrc);
     GLuint prog = glCreateProgram();
@@ -172,226 +170,12 @@ void createLights() {
     glBindBuffer(GL_UNIFORM_BUFFER, 0);
 }
 
-Mesh getTriangleMesh(vector<Triangle>& triangles, int offset, vec3 color, float reflectivity = 0.0f, float translucency = 0.0f, float emission = 0.0f) {
-    vec3 minBound(FLT_MAX);
-    vec3 maxBound(-FLT_MAX);
-    int count = triangles.size();
-    for (int i = 0; i < count; ++i) {
-        const Triangle& tri = triangles[i];
-        minBound = glm::min(minBound, glm::min(tri.v0, glm::min(tri.v1, tri.v2)));
-        maxBound = glm::max(maxBound, glm::max(tri.v0, glm::max(tri.v1, tri.v2)));
-    }
-    return { minBound, offset, maxBound, count, color, 0, reflectivity, translucency, emission, 0.0f };
-}
-
-Mesh getSphereMesh(Sphere& sphere, int offset, vec3 color, float reflectivity = 0.0f, float translucency = 0.0f, float emission = 0.0f) {
-    vec3 minBound = sphere.center - vec3(sphere.radius);
-    vec3 maxBound = sphere.center + vec3(sphere.radius);
-    return { minBound, offset, maxBound, 1, color, 1, reflectivity, translucency, emission, 0.0f };
-}
-
-vec3 getCentroidTriangle(const Triangle& tri) {
-    return (tri.v0 + tri.v1 + tri.v2) / 3.0f;
-}
-
-vector<Node> nodes;
-vector<Mesh> meshes;
-vector<Triangle> triangles;
-vector<Sphere> spheres;
-vector<bvhNode> geometry;
-
-void updateBounds(Node& node) {
-    node.min = vec3(FLT_MAX);
-    node.max = vec3(-FLT_MAX);
-    if (node.count > 0) { // leaf node, calculate aabb for primitive
-        if (node.type == 0) { // triangle
-            
-        } else if (node.type == 1) { // sphere
-            Sphere sphere = spheres[node.triIdx];
-            node.min = sphere.center - vec3(sphere.radius);
-            node.max = sphere.center + vec3(sphere.radius);
-        }
-    } else { // calculate total bounds
-
-    }
-}
-
-void swap(int a, int b) {
-    bvhNode temp = geometry[a];
-    geometry[a] = geometry[b];
-    geometry[b] = temp;
-}
-
-void subdivide(int nodeIndex) {
-    int nodesUsed = nodes.size();
-    Node* node = &nodes[nodeIndex];
-    vec3 extent = node->max - node->min;
-    int axis = 0;
-    if (extent.y > extent.x) axis = 1;
-    if (extent.z > extent[axis]) axis = 2;
-    float splitPos = node->min[axis] + extent[axis] * 0.5f;
-
-    int i = node->triIdx;
-    int j = i + node->count - 1;
-    while (i <= j) {
-        if (geometry[i].center[axis] < splitPos) i++;
-        else swap(i, j--);
-    }
-    
-
-    int leftCount = i - node->triIdx;
-    if (leftCount == 0 || leftCount == node->count) return;
-    // create child nodes
-    int leftChildIdx = nodesUsed++;
-    int rightChildIdx = nodesUsed++;
-    node->left = leftChildIdx;
-    nodes[leftChildIdx].triIdx = node->triIdx;
-    nodes[leftChildIdx].count = leftCount;
-    nodes[rightChildIdx].triIdx = i;
-    nodes[rightChildIdx].count = node->count - leftCount;
-    node->count = 0;
-    updateBounds(nodes[leftChildIdx]);
-    updateBounds(nodes[rightChildIdx]);
-    subdivide(leftChildIdx);
-    subdivide(rightChildIdx);
-}
-
-void buildBVH() {
-    for (int i = 0; i < triangles.size(); i++) {
-        geometry.push_back({
-                getCentroidTriangle(triangles[i]),
-                0,
-                i
-            }
-        );
-    }
-    for (int i = 0; i < spheres.size(); i++) {
-        geometry.push_back({
-                spheres[i].center,
-                1,
-                i
-            }
-        );
-    }
-
-    Node root;
-    root.left = 0;
-    root.right = 0;
-    root.triIdx = 0;
-    root.count = 0;
-    root.min = vec3(FLT_MAX);
-    root.max = vec3(-FLT_MAX);
-    for (int i = 0; i < meshes.size(); ++i) {
-        root.min = glm::min(root.min, meshes[i].lowerLeftBack);
-        root.max = glm::max(root.max, meshes[i].upperRightFront);
-    }
-    nodes.push_back(root);
-    subdivide(0);
-
-    GLuint bvhSSBO;
-    glGenBuffers(1, &bvhSSBO);
-    glBindBuffer(GL_SHADER_STORAGE_BUFFER, bvhSSBO);
-    glBufferData(GL_SHADER_STORAGE_BUFFER, nodes.size() * sizeof(Node), nodes.data(), GL_DYNAMIC_DRAW);
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 5, bvhSSBO); // binding = 5 for SSBO
-    glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
-}
-
-void createGeometry() {
-    GLuint triangleSSBO, sphereSSBO, meshSSBO, geometrySSBO, bvhSSBO;
-    const float s = 5.0f;
-    const float z = 0.0f;
-    vector<Triangle> floor = {
-        {{-s, z, -s}, { s, z, -s}, { s, z,  s}, {z, 1.0f, z}},
-        {{ s, z,  s}, {-s, z,  s}, {-s, z, -s}, {z, 1.0f, z}}
-    };
-
-    vector<Triangle> ceiling = {
-        {{ s, s, -s}, {-s, s,  s}, { s, s,  s}, {z, -1.0f, z}},
-        {{ s, s, -s}, {-s, s, -s}, {-s, s,  s}, {z, -1.0f, z}}
-    };
-    
-    vector<Triangle> backWall = {
-        {{ s, z, -s}, {-s, z, -s}, {-s, s, -s}, {z, z, 1.0f}},
-        {{ s, s, -s}, { s, z, -s}, {-s, s, -s}, {z, z, 1.0f}}
-    };
-    
-    vector<Triangle> rightWall = {
-        {{ s, z, -s}, { s, s, -s}, { s, z,  s}, {-1.0f, z, z}},
-        {{ s, z,  s}, { s, s, -s}, { s, s,  s}, {-1.0f, z, z}}
-    };
-    
-    vector<Triangle> leftWall = {
-        {{-s, z,  s}, {-s, s, -s}, {-s, z, -s}, {1.0f, z, z}},
-        {{-s, z,  s}, {-s, s,  s}, {-s, s, -s}, {1.0f, z, z}}
-    };
-
-    triangles.insert(triangles.end(), floor.begin(), floor.end());
-    triangles.insert(triangles.end(), ceiling.begin(), ceiling.end());
-    triangles.insert(triangles.end(), backWall.begin(), backWall.end());
-    triangles.insert(triangles.end(), rightWall.begin(), rightWall.end());
-    triangles.insert(triangles.end(), leftWall.begin(), leftWall.end());
-    //triangles.insert(triangles.end(), sphereTriangles.begin(), sphereTriangles.end());
-
-    vector<GPUTriangle> gpuTriangles;
-    for (Triangle& tri : triangles) {
-        gpuTriangles.push_back({
-            tri.v0, tri.n.x,
-            tri.v1, tri.n.y,
-            tri.v2, tri.n.z
-        });
-    }
-
-    glGenBuffers(1, &triangleSSBO);
-    glBindBuffer(GL_SHADER_STORAGE_BUFFER, triangleSSBO);
-    glBufferData(GL_SHADER_STORAGE_BUFFER, gpuTriangles.size() * sizeof(GPUTriangle), gpuTriangles.data(), GL_DYNAMIC_DRAW);
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, triangleSSBO); // binding = 1 for SSBO
-    glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
-
-    Sphere sphere0 = { vec3(1.0f, 1.0f, 0.0f), 0.5f };
-    Sphere sphere1 = { vec3(-1.0f, 0.5f, -1.0f), 0.5f };
-    spheres = { sphere0, sphere1 };
-
-    glGenBuffers(1, &sphereSSBO);
-    glBindBuffer(GL_SHADER_STORAGE_BUFFER, sphereSSBO);
-    glBufferData(GL_SHADER_STORAGE_BUFFER, spheres.size() * sizeof(Sphere), spheres.data(), GL_DYNAMIC_DRAW);
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, sphereSSBO); // binding = 3 for SSBO
-    glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
-
-    Mesh floorMesh = getTriangleMesh(floor, 0, vec3(1.0f, 1.0f, 1.0f));
-    Mesh ceilingMesh = getTriangleMesh(ceiling, floorMesh.offset + floorMesh.size, vec3(1.0f, 1.0f, 1.0f));
-    Mesh backWallMesh = getTriangleMesh(backWall, ceilingMesh.offset + ceilingMesh.size, vec3(1.0f, 1.0f, 1.0f), 1.0f);
-    Mesh rightWallMesh = getTriangleMesh(rightWall, backWallMesh.offset + backWallMesh.size, vec3(0.2f, 1.0f, 0.2f), 0.5f);
-    Mesh leftWallMesh = getTriangleMesh(leftWall, rightWallMesh.offset + rightWallMesh.size, vec3(0.2f, 0.2f, 1.0f), 0.5f);
-    //Mesh sphereMesh = getTriangleMesh(sphereTriangles, leftWallMesh.offset + leftWallMesh.size, vec3(1.0f, 0.2f, 0.2f));
-    Mesh realSphereMesh = getSphereMesh(sphere0, 0, vec3(1.0f, 0.2f, 0.2f), 0.8f, 0.0f, 0.0f);
-    Mesh realSphereMesh2 = getSphereMesh(sphere1, 1, vec3(1.0f, 1.0f, 0.2f), 0.3f, 0.0f, 0.0f);
-
-    meshes = {
-        floorMesh,
-        ceilingMesh,
-        backWallMesh,
-        rightWallMesh,
-        leftWallMesh,
-        //sphereMesh,
-        realSphereMesh,
-        realSphereMesh2
-    };
-
-    glGenBuffers(1, &meshSSBO);
-    glBindBuffer(GL_SHADER_STORAGE_BUFFER, meshSSBO);
-    glBufferData(GL_SHADER_STORAGE_BUFFER, meshes.size() * sizeof(Mesh), meshes.data(), GL_DYNAMIC_DRAW);
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, meshSSBO); // binding = 2 for SSBO
-    glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
-
-    //buildBVH();
-}
-
 void createCamera(GLuint &cameraUBO, Camera &cam) {
     cam = {
-        vec3(0.0f, 3.5f, 10.0f),
-        glm::radians(45.0f),
-        vec3(0.0f, -0.2f, -1.0f),
-        800.0f / 600.0f,
+        vec3(0.0f, 0.0f, 10.0f),
+        radians(45.0f),
+        vec3(0.0f, 0.0f, -1.0f),
+        (float)WIDTH / (float)HEIGHT,
         vec3(0.0f, 1.0f, 0.0f),
         0.0f
     };
@@ -402,21 +186,167 @@ void createCamera(GLuint &cameraUBO, Camera &cam) {
     glBindBuffer(GL_UNIFORM_BUFFER, 0);
 }
 
-int main() {
-    int WIDTH = 800, HEIGHT = 600;
+struct Type {
+    int idx;
+    int type; // 0 = triangle, 1 = sphere
+};
 
+void buildNodeTopDown(int idx, vector<Type> idxs) { //TODO: consider BVH8
+    Node node;
+    node.idx = -1;
+    node.type = -1;
+    node.ownIdx = idx;
+    node.left = -1;
+    node.right = -1;
+    nodes.push_back(node);
+    if (idxs.size() == 1) {
+        Type t = idxs[0];
+        if (t.type == 0) {
+            Tri& tri = triangles[t.idx];
+            nodes[idx].min = min(tri.v0, min(tri.v1, tri.v2));
+            nodes[idx].max = max(tri.v0, max(tri.v1, tri.v2));
+        } else if (t.type == 1) {
+            Sph& sph = spheres[t.idx];
+            nodes[idx].min = sph.center - vec3(sph.radius);
+            nodes[idx].max = sph.center + vec3(sph.radius);
+        }
+        nodes[idx].idx = t.idx;
+        nodes[idx].type = t.type;
+        nodes[idx].materialIdx = rnd(0, materials.size());
+    } else {
+        //! extent calculated before min/max are set, thus axis is always 0, very inefficient
+        vec3 extent = nodes[idx].max - nodes[idx].min; 
+        int axis = 0;
+        if (extent.y > extent.x) axis = 1;
+        if (extent.z > extent[axis]) axis = 2;
+        
+        vector<Type> leftIdxs, rightIdxs;
+        sort(idxs.begin(), idxs.end(), [axis](Type a, Type b) { 
+            vec3 ac = a.type ? spheres[a.idx].center : triangles[a.idx].c;
+            vec3 bc = b.type ? spheres[b.idx].center : triangles[b.idx].c;
+            return ac[axis] < bc[axis]; 
+        });
+        int mid = idxs.size() / 2;
+        leftIdxs.insert(leftIdxs.end(), idxs.begin(), idxs.begin() + mid);
+        rightIdxs.insert(rightIdxs.end(), idxs.begin() + mid, idxs.end());     
+
+        int leftIdx, rightIdx = -1;
+        if (!leftIdxs.empty()) {
+            leftIdx = idx + 1;
+            nodes[idx].left = leftIdx;
+            buildNodeTopDown(leftIdx, leftIdxs);
+        } 
+        if (!rightIdxs.empty()) {
+            rightIdx = nodes.size();
+            nodes[idx].right = rightIdx;
+            buildNodeTopDown(rightIdx, rightIdxs);  
+        }
+
+        if (leftIdx != -1 && rightIdx != -1) {
+            nodes[idx].max = max(nodes[leftIdx].max, nodes[rightIdx].max);
+            nodes[idx].min = min(nodes[leftIdx].min, nodes[rightIdx].min);
+        } else if (leftIdx != -1) {
+            nodes[idx].max = nodes[leftIdx].max;
+            nodes[idx].min = nodes[leftIdx].min;
+        } else if (rightIdx != -1) {
+            nodes[idx].max = nodes[rightIdx].max;
+            nodes[idx].min = nodes[rightIdx].min;
+        } 
+    }
+}
+
+void tightenBounds(int index) {
+    Node* node = &nodes[index];
+    if (node->idx != -1) {
+        if (node->type == 0) {
+            Tri& tri = triangles[node->idx];
+            node->min = min(tri.v0, min(tri.v1, tri.v2));
+            node->max = max(tri.v0, max(tri.v1, tri.v2));
+        } else if (node->type == 1) {
+            Sph& sph = spheres[node->idx];
+            node->min = sph.center - vec3(sph.radius);
+            node->max = sph.center + vec3(sph.radius);
+        }
+    } else {
+        tightenBounds(node->left);
+        tightenBounds(node->right);
+        node->min = min(nodes[node->left].min, nodes[node->right].min);
+        node->max = max(nodes[node->left].max, nodes[node->right].max);
+    }
+}
+
+
+void init(GLuint triSSBO, GLuint sphSSBO, GLuint bvhSSBO) {
+    vector<Type> allIndices;
+    for (int i = 0; i < N; i++) {
+        Tri tri;
+        vec3 j0 = vec3(rnd(-3.0f, 3.0f), rnd(-3.0f, 3.0f), rnd(-3.0f, 3.0f));
+        vec3 j1 = vec3(rnd(-0.5f, 0.5f), rnd(-0.5f, 0.5f), rnd(-0.5f, 0.5f));
+        vec3 j2 = vec3(rnd(-0.5f, 0.5f), rnd(-0.5f, 0.5f), rnd(-0.5f, 0.5f));
+        tri.v0 = vec4(j0, 0.0f);
+        tri.v1 = vec4(j0 + j1, 0.0f);
+        tri.v2 = vec4(j0 + j2, 0.0f);
+        tri.c = (tri.v0 + tri.v1 + tri.v2) / 3.0f;
+        triangles.push_back(tri);
+        allIndices.push_back({i, 0});
+
+        #if (DEBUG == 1)
+        cout << "Triangle " << i << ": \n";
+        cout << "  v0: (" << tri.v0.x << ", " << tri.v0.y << ", " << tri.v0.z << ")\n";
+        cout << "  v1: (" << tri.v1.x << ", " << tri.v1.y << ", " << tri.v1.z << ")\n";
+        cout << "  v2: (" << tri.v2.x << ", " << tri.v2.y << ", " << tri.v2.z << ")\n"; 
+        #endif
+    }
+    
+    glGenBuffers(1, &triSSBO);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, triSSBO);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, triangles.size() * sizeof(Tri), triangles.data(), GL_DYNAMIC_DRAW);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, triSSBO); // binding = 0 for SSBO
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+
+    for (int i = 0; i < N; i++) {
+        Sph sph;
+        sph.center = vec3(rnd(-3.0f, 3.0f), rnd(-3.0f, 3.0f), rnd(-3.0f, 3.0f));
+        sph.radius = rnd(0.1f, 0.5f);
+        spheres.push_back(sph);
+        allIndices.push_back({i, 1});
+
+        #if (DEBUG == 1)
+        cout << "Sphere " << i << ": \n";
+        cout << "  center: (" << sph.center.x << ", " << sph.center.y << ", " << sph.center.z << ")\n";
+        cout << "  radius: " << sph.radius << "\n";
+        #endif
+    }
+
+    glGenBuffers(1, &sphSSBO);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, sphSSBO);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, spheres.size() * sizeof(Sph), spheres.data(), GL_DYNAMIC_DRAW);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, sphSSBO); // binding = 1 for SSBO
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+
+    buildNodeTopDown(0, allIndices);
+    tightenBounds(0);
+
+    glGenBuffers(1, &bvhSSBO);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, bvhSSBO);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, nodes.size() * sizeof(Node), nodes.data(), GL_DYNAMIC_DRAW);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, bvhSSBO); // binding = 2 for SSBO
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+}
+
+int main() {
     glfwInit();
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
     GLFWwindow* window = glfwCreateWindow(WIDTH, HEIGHT, "Raytracer", nullptr, nullptr);
     if (!window) {
-        std::cerr << "Failed to create window\n";
+        cerr << "Failed to create window\n";
         return -1;
     }
     glfwMakeContextCurrent(window);
     if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
-        std::cerr << "Failed to init GLAD\n";
+        cerr << "Failed to init GLAD\n";
         return -1;
     }
     glfwSwapInterval(0);
@@ -451,7 +381,6 @@ int main() {
     GLuint cameraUBO;
     Camera cam;
     createCamera(cameraUBO, cam);
-    createGeometry();
     createLights();
 
     vec2 mousePos = vec2(0.0f);
@@ -462,13 +391,66 @@ int main() {
     glBindBufferBase(GL_UNIFORM_BUFFER, 2, mouseUBO); // binding = 2 for UBO
     glBindBuffer(GL_UNIFORM_BUFFER, 0);
 
+    Material defaultMat;
+    defaultMat.color = vec4(1.0f, 1.0f, 1.0f, 1.0f);
+    defaultMat.reflectivity = 0.0f;
+    defaultMat.translucency = 0.0f;
+    defaultMat.emission = 0.0f;
+    defaultMat.refractiveIndex = 1.0f;
+    materials.push_back(defaultMat);
+
+    Material reflectiveRed;
+    reflectiveRed.color = vec4(1.0f, 0.0f, 0.0f, 1.0f);
+    reflectiveRed.reflectivity = 0.8f;
+    reflectiveRed.translucency = 0.0f;
+    reflectiveRed.emission = 0.0f;
+    reflectiveRed.refractiveIndex = 1.0f;
+    materials.push_back(reflectiveRed);
+
+    Material translucentBlue;
+    translucentBlue.color = vec4(0.0f, 0.0f, 1.0f, 1.0f);
+    translucentBlue.reflectivity = 0.1f;
+    translucentBlue.translucency = 0.8f;
+    translucentBlue.emission = 0.0f;
+    translucentBlue.refractiveIndex = 1.5f;
+    materials.push_back(translucentBlue);
+
+    Material emissiveGreen;
+    emissiveGreen.color = vec4(0.0f, 1.0f, 0.0f, 1.0f);
+    emissiveGreen.reflectivity = 0.0f;
+    emissiveGreen.translucency = 0.0f;
+    emissiveGreen.emission = 0.5f;
+    emissiveGreen.refractiveIndex = 1.0f;
+    materials.push_back(emissiveGreen);
+
+    GLuint triSSBO, sphSSBO, bvhSSBO, materialSSBO;
+    glGenBuffers(1, &materialSSBO);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, materialSSBO);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, materials.size() * sizeof(Material), materials.data(), GL_DYNAMIC_DRAW);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, materialSSBO); // binding = 3 for SSBO
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0); 
+
+    float initialTime = glfwGetTime();
+    init(triSSBO, sphSSBO, bvhSSBO);
+
+    #if (DEBUG == 1)
+    cout << "BVH build time: " << (glfwGetTime() - initialTime) << " seconds\n";
+    for (Node& n : nodes) {
+        string type = (n.type == 0) ? "⚠️" : (n.type == 1) ? "⭕" : "🌲";
+        cout << "Node " << n.ownIdx << ": Index=" << n.idx << ", type=" << type << ", left=" << n.left << ", right=" << n.right << "\n";
+        cout << "  Min: (" << n.min.x << ", " << n.min.y << ", " << n.min.z << ")\n";
+        cout << "  Max: (" << n.max.x << ", " << n.max.y << ", " << n.max.z << ")\n";
+        cout << "  Extent: (" << (n.max.x - n.min.x) << ", " << (n.max.y - n.min.y) << ", " << (n.max.z - n.min.z) << ")\n";
+    }
+    #endif
+
     int nbFrames = 0;
     double lastTime = glfwGetTime();
-    float lastFrame = 0.0f;
+    double lastFrame = 0.0f;
+    int width, height;
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
         
-        int width, height;
         glfwGetFramebufferSize(window, &width, &height);
         if (width != WIDTH || height != HEIGHT) {
             WIDTH = width;
@@ -492,13 +474,13 @@ int main() {
 
         nbFrames++;
         double currentTime = glfwGetTime();
-        float deltaTime = currentTime - lastFrame;
+        double deltaTime = currentTime - lastFrame;
         lastFrame = currentTime;
 
         double xpos, ypos;
         glfwGetCursorPos(window, &xpos, &ypos);
-        if (xpos != mousePos.x || ypos != mousePos.y) {
-            mousePos = vec2(xpos, ypos);
+        if (xpos != mousePos.x || ypos != HEIGHT - mousePos.y) {
+            mousePos = vec2(xpos, HEIGHT - ypos);
             glBindBuffer(GL_UNIFORM_BUFFER, mouseUBO);
             glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(vec2), &mousePos);
             glBindBuffer(GL_UNIFORM_BUFFER, 0);
@@ -514,10 +496,9 @@ int main() {
             double fps = double(nbFrames) / (currentTime - lastTime);
             double frameTimeMs = 1000.0 / fps;
 
-            std::string title = "Raytracer - " +
-                std::to_string((int)fps) + " FPS | " +
-                std::to_string(frameTimeMs).substr(0, 5) + " ms/frame";
-            glfwSetWindowTitle(window, title.c_str());
+            stringstream title;
+            title << "Raytracer - " << fps << " FPS (" << frameTimeMs << " ms/frame)";
+            glfwSetWindowTitle(window, title.str().c_str());
 
             nbFrames = 0;
             lastTime = currentTime;
