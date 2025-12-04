@@ -257,7 +257,7 @@ void buildNode2(int idx, vec3 minv, vec3 maxv, vector<Type> idxs) {
         }
         nodes[idx].idx = t.idx;
         nodes[idx].type = t.type;
-        nodes[idx].materialIdx = 0;//rnd(0, materials.size());
+        nodes[idx].materialIdx = rnd(0, materials.size());
     } else {
         vec3 extent = maxv - minv; 
         int axis = 0;
@@ -462,7 +462,7 @@ void init(GLuint triSSBO, GLuint sphSSBO, GLuint bvhSSBO) {
 
     //buildNode(0, allIndices);
     buildNode2(0, vec3(-10.0f), vec3(10.0f), allIndices);
-    tightenBounds(0);
+    tightenBounds(0); //? Probably not needed if bounds are calculated correctly during build
 
     glGenBuffers(1, &bvhSSBO);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, bvhSSBO);

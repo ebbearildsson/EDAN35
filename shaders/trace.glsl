@@ -185,6 +185,7 @@ vec4 getColor(vec3 rayOri, vec3 rayDir) {
     vec3 color = hit.mat.color * diff;
 
     //TODO: combine reflections and refractions, maybe use stack instead of loops
+    //! This is probably high priority to fix for better performance and correctness
     if (hit.mat.reflectivity > 0.0) {
         vec3 currDir = reflect(rayDir, hit.N);
         vec3 currOri = biasQ;
