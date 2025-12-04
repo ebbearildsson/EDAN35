@@ -13,7 +13,7 @@
 using namespace glm;
 using namespace std;
 
-#define N 10
+#define N 2
 #define DEBUG 0
 int WIDTH = 800, HEIGHT = 600;
 
@@ -21,7 +21,7 @@ struct Tri { //TODO: compact this
     vec4 v0;
     vec4 v1;
     vec4 v2;
-    vec4 c; 
+    vec4 c;
 };
 
 struct Sph {
@@ -79,6 +79,44 @@ int rnd(int min, int max) {
     return rand() % (max - min) + min;
 }
 
+void createObjectFromFile(const string& path) {
+    vector<vec3> temp_vertices;
+    ifstream file(path);
+    if (!file.is_open()) {
+        cerr << "Failed to open file: " << path << endl;
+        return;
+    }
+    string line;
+    while (getline(file, line)) {
+        if (line.substr(0, 2) == "v ") {
+            istringstream s(line.substr(2));
+            vec3 v;
+            s >> v.x; s >> v.y; s >> v.z;
+            temp_vertices.push_back(v);
+        } else if (line.substr(0, 2) == "f ") {
+            istringstream s(line.substr(2));
+            int vIndex[3];
+
+            char slash;
+            for (int i = 0; i < 3; i++) {
+                s >> vIndex[i];
+                if (s.peek() == '/') {
+                    s >> slash;
+                    while (s.peek() != ' ' && s.peek() != EOF) s >> slash;
+                }
+                vIndex[i] -= 1;
+            }
+
+            Tri tri;
+            tri.v0 = vec4(temp_vertices[vIndex[0]], 0.0f);
+            tri.v1 = vec4(temp_vertices[vIndex[1]], 0.0f);
+            tri.v2 = vec4(temp_vertices[vIndex[2]], 0.0f);
+            tri.c = (tri.v0 + tri.v1 + tri.v2) / 3.0f;
+            triangles.push_back(tri);
+        }
+    }
+}
+
 string loadFile(const string& path) {
     ifstream file(path);
     if (!file.is_open()) throw runtime_error("Failed to open file: " + path);
@@ -134,25 +172,29 @@ bool processInput(GLFWwindow* window, Camera* cam, float deltaTime) {
     if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) {
         cam->position += cam->forward * velocity;
         moved = true;
-    }
-    if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) {
+    } else if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) {
         cam->position -= cam->forward * velocity;
         moved = true;
     }
     if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) {
         cam->position -= normalize(cross(cam->forward, cam->up)) * velocity;
         moved = true;
-    }
-    if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) {
+    } else if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) {
         cam->position += normalize(cross(cam->forward, cam->up)) * velocity;
         moved = true;
     }
     if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS) {
         cam->position += cam->up * velocity;
         moved = true;
-    }
-    if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS) {
+    } else if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS) {
         cam->position -= cam->up * velocity;
+        moved = true;
+    }
+    if (glfwGetKey(window, GLFW_KEY_Q) == GLFW_PRESS) {
+        cam->forward += normalize(cross(cam->up, cam->forward)) * velocity;
+        moved = true;
+    } else if (glfwGetKey(window, GLFW_KEY_E) == GLFW_PRESS) {
+        cam->forward -= normalize(cross(cam->up, cam->forward)) * velocity;
         moved = true;
     }
 
@@ -191,7 +233,7 @@ struct Type {
     int type; // 0 = triangle, 1 = sphere
 };
 
-void buildNodeTopDown(int idx, vector<Type> idxs) { //TODO: consider BVH8
+void buildNode(int idx, vector<Type> idxs) { //TODO: consider BVH8
     Node node;
     node.idx = -1;
     node.type = -1;
@@ -212,7 +254,7 @@ void buildNodeTopDown(int idx, vector<Type> idxs) { //TODO: consider BVH8
         }
         nodes[idx].idx = t.idx;
         nodes[idx].type = t.type;
-        nodes[idx].materialIdx = rnd(0, materials.size());
+        nodes[idx].materialIdx = 0;//rnd(0, materials.size());
     } else {
         //! extent calculated before min/max are set, thus axis is always 0, very inefficient
         vec3 extent = nodes[idx].max - nodes[idx].min; 
@@ -234,12 +276,12 @@ void buildNodeTopDown(int idx, vector<Type> idxs) { //TODO: consider BVH8
         if (!leftIdxs.empty()) {
             leftIdx = idx + 1;
             nodes[idx].left = leftIdx;
-            buildNodeTopDown(leftIdx, leftIdxs);
+            buildNode(leftIdx, leftIdxs);
         } 
         if (!rightIdxs.empty()) {
             rightIdx = nodes.size();
             nodes[idx].right = rightIdx;
-            buildNodeTopDown(rightIdx, rightIdxs);  
+            buildNode(rightIdx, rightIdxs);  
         }
 
         if (leftIdx != -1 && rightIdx != -1) {
@@ -278,6 +320,11 @@ void tightenBounds(int index) {
 
 void init(GLuint triSSBO, GLuint sphSSBO, GLuint bvhSSBO) {
     vector<Type> allIndices;
+    createObjectFromFile("../models/spot.obj");
+    for (size_t i = 0; i < triangles.size(); i++) {
+        allIndices.push_back({(int)i, 0});
+    }
+
     for (int i = 0; i < N; i++) {
         Tri tri;
         vec3 j0 = vec3(rnd(-3.0f, 3.0f), rnd(-3.0f, 3.0f), rnd(-3.0f, 3.0f));
@@ -297,7 +344,8 @@ void init(GLuint triSSBO, GLuint sphSSBO, GLuint bvhSSBO) {
         cout << "  v2: (" << tri.v2.x << ", " << tri.v2.y << ", " << tri.v2.z << ")\n"; 
         #endif
     }
-    
+
+    cout << "Triangle size: " << (triangles.size() * sizeof(Tri)) / 1000000.0 << " MB" << "\n";
     glGenBuffers(1, &triSSBO);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, triSSBO);
     glBufferData(GL_SHADER_STORAGE_BUFFER, triangles.size() * sizeof(Tri), triangles.data(), GL_DYNAMIC_DRAW);
@@ -324,7 +372,7 @@ void init(GLuint triSSBO, GLuint sphSSBO, GLuint bvhSSBO) {
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, sphSSBO); // binding = 1 for SSBO
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 
-    buildNodeTopDown(0, allIndices);
+    buildNode(0, allIndices);
     tightenBounds(0);
 
     glGenBuffers(1, &bvhSSBO);
