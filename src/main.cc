@@ -17,11 +17,19 @@ using namespace std;
 #define DEBUG 0
 int WIDTH = 800, HEIGHT = 600;
 
-struct Tri { //TODO: compact this
+struct GPUTri { //TODO: compact this
     vec4 v0;
     vec4 v1;
     vec4 v2;
-    vec4 c;
+    vec4 n;
+};
+
+struct Tri {
+    vec3 v0;
+    vec3 v1;
+    vec3 v2;
+    vec3 c;
+    vec3 normal;
 };
 
 struct Sph {
@@ -48,7 +56,7 @@ struct Node { //TODO: compact this
     int materialIdx;
 };
 
-static_assert(sizeof(Tri) == 64, "Tri size incorrect");
+static_assert(sizeof(GPUTri) == 64, "GPUTri size incorrect");
 static_assert(sizeof(Node) == 48, "Node size incorrect");
 static_assert(sizeof(Sph) == 16, "Sphere size incorrect");
 
@@ -79,42 +87,64 @@ int rnd(int min, int max) {
     return rand() % (max - min) + min;
 }
 
-void createObjectFromFile(const string& path) {
+vector<Tri> createObjectFromFile(const string& path) {
     vector<vec3> temp_vertices;
     ifstream file(path);
     if (!file.is_open()) {
-        cerr << "Failed to open file: " << path << endl;
-        return;
+        throw runtime_error("Failed to open OBJ file: " + path);
     }
     string line;
+    vector<Tri> tris;
+    vector<vec3> temp_normals;
     while (getline(file, line)) {
         if (line.substr(0, 2) == "v ") {
             istringstream s(line.substr(2));
             vec3 v;
             s >> v.x; s >> v.y; s >> v.z;
             temp_vertices.push_back(v);
+        } else if (line.substr(0, 2) == "vn") {
+            istringstream s(line.substr(2));
+            vec3 n;
+            s >> n.x; s >> n.y; s >> n.z;
+            temp_normals.push_back(n);
         } else if (line.substr(0, 2) == "f ") {
             istringstream s(line.substr(2));
             int vIndex[3];
-
+            int nIndex[3];
             char slash;
+            
             for (int i = 0; i < 3; i++) {
-                s >> vIndex[i];
-                if (s.peek() == '/') {
-                    s >> slash;
-                    while (s.peek() != ' ' && s.peek() != EOF) s >> slash;
-                }
-                vIndex[i] -= 1;
+                int vi, vt, vn;
+                s >> vi;
+                //if (temp_normals.empty()) {
+                //    vIndex[i] = vi - 1;
+                //    continue;
+                //}
+                //s >> slash;
+                //s >> vt;
+                //s >> slash;
+                //s >> vn;
+                vIndex[i] = vi - 1;
+                //nIndex[i] = vn - 1;
             }
 
             Tri tri;
-            tri.v0 = vec4(temp_vertices[vIndex[0]], 0.0f);
-            tri.v1 = vec4(temp_vertices[vIndex[1]], 0.0f);
-            tri.v2 = vec4(temp_vertices[vIndex[2]], 0.0f);
+            tri.v0 = vec3(temp_vertices[vIndex[0]]);
+            tri.v1 = vec3(temp_vertices[vIndex[1]]);
+            tri.v2 = vec3(temp_vertices[vIndex[2]]);
             tri.c = (tri.v0 + tri.v1 + tri.v2) / 3.0f;
-            triangles.push_back(tri);
+            //if (temp_normals.empty()) {
+            //    tri.normal = normalize(cross(tri.v1 - tri.v0, tri.v2 - tri.v0));
+            //} else {
+            //    tri.normal = vec3(temp_normals[nIndex[0]]);
+            //}
+            tri.normal = normalize(cross(tri.v1 - tri.v0, tri.v2 - tri.v0));
+            tris.push_back(tri);
         }
     }
+
+    file.close();
+    return tris;
 }
 
 string loadFile(const string& path) {
@@ -233,8 +263,7 @@ struct Type {
     int type; // 0 = triangle, 1 = sphere
 };
 
-
-void buildNode2(int idx, vec3 minv, vec3 maxv, vector<Type> idxs) {
+void buildNode(int idx, vec3 minv, vec3 maxv, vector<Type> idxs) {
     Node node;
     node.idx = -1;
     node.type = -1;
@@ -257,7 +286,7 @@ void buildNode2(int idx, vec3 minv, vec3 maxv, vector<Type> idxs) {
         }
         nodes[idx].idx = t.idx;
         nodes[idx].type = t.type;
-        nodes[idx].materialIdx = rnd(0, materials.size());
+        nodes[idx].materialIdx = 0;//rnd(0, materials.size());
     } else {
         vec3 extent = maxv - minv; 
         int axis = 0;
@@ -276,7 +305,6 @@ void buildNode2(int idx, vec3 minv, vec3 maxv, vector<Type> idxs) {
             }
         }
 
-        // create max and min for child nodes
         vec3 leftMax = maxv;
         vec3 leftMin = minv;
         vec3 rightMax = maxv;
@@ -284,7 +312,8 @@ void buildNode2(int idx, vec3 minv, vec3 maxv, vector<Type> idxs) {
         leftMax[axis] = midPoint;
         rightMin[axis] = midPoint;
 
-        int leftIdx, rightIdx = -1;
+        int leftIdx = -1;
+        int rightIdx = -1;
 
         if (leftIdxs.empty() || rightIdxs.empty()) {
             std::sort(idxs.begin(), idxs.end(), [axis](const Type& a, const Type& b) {
@@ -298,12 +327,12 @@ void buildNode2(int idx, vec3 minv, vec3 maxv, vector<Type> idxs) {
         }
         if (!leftIdxs.empty()) {
             leftIdx = nodes.size();
-            buildNode2(leftIdx, leftMin, leftMax,leftIdxs);
+            buildNode(leftIdx, leftMin, leftMax,leftIdxs);
             nodes[idx].left = leftIdx;
         }
         if (!rightIdxs.empty()) {
             rightIdx = nodes.size();
-            buildNode2(rightIdx, rightMin, rightMax, rightIdxs);  
+            buildNode(rightIdx, rightMin, rightMax, rightIdxs);  
             nodes[idx].right = rightIdx;
         }
 
@@ -317,71 +346,6 @@ void buildNode2(int idx, vec3 minv, vec3 maxv, vector<Type> idxs) {
             nodes[idx].max = nodes[rightIdx].max;
             nodes[idx].min = nodes[rightIdx].min;
         }
-    }
-}
-
-
-void buildNode(int idx, vector<Type> idxs) { //TODO: consider BVH8
-    Node node;
-    node.idx = -1;
-    node.type = -1;
-    node.ownIdx = idx;
-    node.left = -1;
-    node.right = -1;
-    nodes.push_back(node);
-    if (idxs.size() == 1) {
-        Type t = idxs[0];
-        if (t.type == 0) {
-            Tri& tri = triangles[t.idx];
-            nodes[idx].min = min(tri.v0, min(tri.v1, tri.v2));
-            nodes[idx].max = max(tri.v0, max(tri.v1, tri.v2));
-        } else if (t.type == 1) {
-            Sph& sph = spheres[t.idx];
-            nodes[idx].min = sph.center - vec3(sph.radius);
-            nodes[idx].max = sph.center + vec3(sph.radius);
-        }
-        nodes[idx].idx = t.idx;
-        nodes[idx].type = t.type;
-        nodes[idx].materialIdx = 0;//rnd(0, materials.size());
-    } else {
-        //! extent calculated before min/max are set, thus axis is always 0, very inefficient
-        vec3 extent = nodes[idx].max - nodes[idx].min; 
-        int axis = 0;
-        if (extent.y > extent.x) axis = 1;
-        if (extent.z > extent[axis]) axis = 2;
-        
-        vector<Type> leftIdxs, rightIdxs;
-        sort(idxs.begin(), idxs.end(), [axis](Type a, Type b) { 
-            vec3 ac = a.type ? spheres[a.idx].center : triangles[a.idx].c;
-            vec3 bc = b.type ? spheres[b.idx].center : triangles[b.idx].c;
-            return ac[axis] < bc[axis]; 
-        });
-        int mid = idxs.size() / 2;
-        leftIdxs.insert(leftIdxs.end(), idxs.begin(), idxs.begin() + mid);
-        rightIdxs.insert(rightIdxs.end(), idxs.begin() + mid, idxs.end());     
-
-        int leftIdx, rightIdx = -1;
-        if (!leftIdxs.empty()) {
-            leftIdx = idx + 1;
-            nodes[idx].left = leftIdx;
-            buildNode(leftIdx, leftIdxs);
-        } 
-        if (!rightIdxs.empty()) {
-            rightIdx = nodes.size();
-            nodes[idx].right = rightIdx;
-            buildNode(rightIdx, rightIdxs);  
-        }
-
-        if (leftIdx != -1 && rightIdx != -1) {
-            nodes[idx].max = max(nodes[leftIdx].max, nodes[rightIdx].max);
-            nodes[idx].min = min(nodes[leftIdx].min, nodes[rightIdx].min);
-        } else if (leftIdx != -1) {
-            nodes[idx].max = nodes[leftIdx].max;
-            nodes[idx].min = nodes[leftIdx].min;
-        } else if (rightIdx != -1) {
-            nodes[idx].max = nodes[rightIdx].max;
-            nodes[idx].min = nodes[rightIdx].min;
-        } 
     }
 }
 
@@ -400,31 +364,44 @@ void tightenBounds(int index) {
     } else {
         if (node->left != -1) tightenBounds(node->left);
         if (node->right != -1) tightenBounds(node->right);
-        node->min = min(nodes[node->left].min, nodes[node->right].min);
-        node->max = max(nodes[node->left].max, nodes[node->right].max);
+        
+        if (node->left != -1 && node->right != -1) {
+            node->max = max(nodes[node->left].max, nodes[node->right].max);
+            node->min = min(nodes[node->left].min, nodes[node->right].min);
+        } else if (node->left != -1) {
+            node->max = nodes[node->left].max;
+            node->min = nodes[node->left].min;
+        } else if (node->right != -1) {
+            node->max = nodes[node->right].max;
+            node->min = nodes[node->right].min;
+        }
     }
 }
 
-
 void init(GLuint triSSBO, GLuint sphSSBO, GLuint bvhSSBO) {
     vector<Type> allIndices;
-    createObjectFromFile("../models/spot.obj");
-    for (size_t i = 0; i < triangles.size(); i++) {
-        allIndices.push_back({(int)i, 0});
-    }
+    vector<Tri> obj = createObjectFromFile("../models/suzanne.obj");
 
+    int ind = 0;
+    for (int i = 0; i < obj.size(); i++) {
+        Tri tri = obj[i];
+        triangles.push_back(tri);
+        allIndices.push_back({i, 0});
+        ind++;
+    }
     for (int i = 0; i < N; i++) {
         Tri tri;
         vec3 j0 = vec3(rnd(-3.0f, 3.0f), rnd(-3.0f, 3.0f), rnd(-3.0f, 3.0f));
         vec3 j1 = vec3(rnd(-0.5f, 0.5f), rnd(-0.5f, 0.5f), rnd(-0.5f, 0.5f));
         vec3 j2 = vec3(rnd(-0.5f, 0.5f), rnd(-0.5f, 0.5f), rnd(-0.5f, 0.5f));
-        tri.v0 = vec4(j0, 0.0f);
-        tri.v1 = vec4(j0 + j1, 0.0f);
-        tri.v2 = vec4(j0 + j2, 0.0f);
+        tri.v0 = vec3(j0);
+        tri.v1 = vec3(j0 + j1);
+        tri.v2 = vec3(j0 + j2);
         tri.c = (tri.v0 + tri.v1 + tri.v2) / 3.0f;
+        tri.normal = normalize(cross(tri.v1 - tri.v0, tri.v2 - tri.v0));
         triangles.push_back(tri);
-        allIndices.push_back({i, 0});
-
+        allIndices.push_back({ind, 0});
+        ind++;
         #if (DEBUG == 1)
         cout << "Triangle " << i << ": \n";
         cout << "  v0: (" << tri.v0.x << ", " << tri.v0.y << ", " << tri.v0.z << ")\n";
@@ -432,13 +409,6 @@ void init(GLuint triSSBO, GLuint sphSSBO, GLuint bvhSSBO) {
         cout << "  v2: (" << tri.v2.x << ", " << tri.v2.y << ", " << tri.v2.z << ")\n"; 
         #endif
     }
-
-    cout << "Triangle size: " << (triangles.size() * sizeof(Tri)) / 1000000.0 << " MB" << "\n";
-    glGenBuffers(1, &triSSBO);
-    glBindBuffer(GL_SHADER_STORAGE_BUFFER, triSSBO);
-    glBufferData(GL_SHADER_STORAGE_BUFFER, triangles.size() * sizeof(Tri), triangles.data(), GL_DYNAMIC_DRAW);
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, triSSBO); // binding = 0 for SSBO
-    glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 
     for (int i = 0; i < N; i++) {
         Sph sph;
@@ -453,17 +423,35 @@ void init(GLuint triSSBO, GLuint sphSSBO, GLuint bvhSSBO) {
         cout << "  radius: " << sph.radius << "\n";
         #endif
     }
+    
+    buildNode(0, vec3(-10.0f), vec3(10.0f), allIndices);
+    tightenBounds(0); //? Probably not needed if bounds are calculated correctly during build
+    
+    vector<GPUTri> gpuTris;
+    for (Tri& tri : triangles) {
+        GPUTri gtri;
+        gtri.v0 = vec4(tri.v0, 1.0f);
+        gtri.v1 = vec4(tri.v1, 1.0f);
+        gtri.v2 = vec4(tri.v2, 1.0f);
+        gtri.n = vec4(tri.normal, 0.0f);
+        gpuTris.push_back(gtri);
+    }
 
+    cout << "Triangle size: " << (gpuTris.size() * sizeof(GPUTri)) / 1000000.0 << " MB" << "\n";
+    glGenBuffers(1, &triSSBO);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, triSSBO);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, gpuTris.size() * sizeof(GPUTri), gpuTris.data(), GL_DYNAMIC_DRAW);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, triSSBO); // binding = 0 for SSBO
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+    
+    cout << "Sphere size: " << (spheres.size() * sizeof(Sph)) / 1000000.0 << " MB" << "\n";
     glGenBuffers(1, &sphSSBO);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, sphSSBO);
     glBufferData(GL_SHADER_STORAGE_BUFFER, spheres.size() * sizeof(Sph), spheres.data(), GL_DYNAMIC_DRAW);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, sphSSBO); // binding = 1 for SSBO
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 
-    //buildNode(0, allIndices);
-    buildNode2(0, vec3(-10.0f), vec3(10.0f), allIndices);
-    tightenBounds(0); //? Probably not needed if bounds are calculated correctly during build
-
+    cout << "BVH size: " << (nodes.size() * sizeof(Node)) / 1000000.0 << " MB" << "\n";
     glGenBuffers(1, &bvhSSBO);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, bvhSSBO);
     glBufferData(GL_SHADER_STORAGE_BUFFER, nodes.size() * sizeof(Node), nodes.data(), GL_DYNAMIC_DRAW);
@@ -546,7 +534,7 @@ int main() {
 
     Material translucentBlue;
     translucentBlue.color = vec4(0.0f, 0.0f, 1.0f, 1.0f);
-    translucentBlue.reflectivity = 0.1f;
+    translucentBlue.reflectivity = 0.0f;
     translucentBlue.translucency = 0.8f;
     translucentBlue.emission = 0.0f;
     translucentBlue.refractiveIndex = 1.5f;

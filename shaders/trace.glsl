@@ -5,6 +5,7 @@ const float MINSILON = 1e-3;
 const float MAXILON = 1e6;
 const int MAX_STACK_SIZE = 128;
 const int MAX_REFLECTION_DEPTH = 5;
+const int MAX_REFRACTION_DEPTH = 5;
 const float MAX_RAY_DISTANCE = 200.0;
 const float MAX_RAY_DENSITY = 100.0;
 
@@ -12,7 +13,7 @@ struct Triangle { //TODO: compact this better
     vec3 v0; float _pad0;
     vec3 v1; float _pad1;
     vec3 v2; float _pad2;
-    vec3 c;  float _pad3;
+    vec3 n;  float _pad3;
 };
 
 struct Sphere {
@@ -133,7 +134,7 @@ float intersect(vec3 rayOri, vec3 rayDir, Node n) {
 vec3 getNormal(vec3 point, Node node) {
     if (node.type == 0) {
         Triangle tri = triangles[node.idx];
-        return normalize(cross(tri.v1 - tri.v0, tri.v2 - tri.v0));
+        return tri.n;
     } else if (node.type == 1) {
         Sphere sph = spheres[node.idx];
         return normalize(point - sph.center);
@@ -176,51 +177,37 @@ Hit traverseBVH(vec3 rayOri, vec3 rayDir) {
 }
 
 vec4 getColor(vec3 rayOri, vec3 rayDir) {
-    Hit hit = traverseBVH(rayOri, rayDir);
-    if (hit.t == MAXILON) return vec4(0.2);
+    vec3 color = vec3(0.2);
+    struct Ray {
+        vec3 o;
+        vec3 d;
+    };
 
-    vec3 biasQ = hit.Q + hit.N * MINSILON;
-
-    float diff = max(dot(hit.N, normalize(lightPos - hit.Q)), 0.0);
-    vec3 color = hit.mat.color * diff;
-
-    //TODO: combine reflections and refractions, maybe use stack instead of loops
-    //! This is probably high priority to fix for better performance and correctness
-    if (hit.mat.reflectivity > 0.0) {
-        vec3 currDir = reflect(rayDir, hit.N);
-        vec3 currOri = biasQ;
-        vec3 accumColor = vec3(0.0);
-        for (int bounce = 0; bounce < MAX_REFLECTION_DEPTH; bounce++) {
-            Hit rHit = traverseBVH(currOri, currDir);
-            if (rHit.t == MAXILON) break;
-            float currDiff = max(dot(rHit.N, normalize(lightPos - rHit.Q)), 0.0);
-            currOri = rHit.Q + rHit.N * MINSILON;
-            accumColor += (rHit.mat.color * pow(rHit.mat.reflectivity, bounce + 1)) * currDiff;
-            if (rHit.mat.reflectivity <= 0.0) break;
-            currDir = reflect(currDir, rHit.N);
+    Ray stack[MAX_STACK_SIZE];
+    int stackPtr = 0;
+    int reflections = 0;
+    int refractions = 0;
+    stack[stackPtr++] = Ray(rayOri, rayDir);
+    while (stackPtr > 0) {
+        Ray ray = stack[--stackPtr];
+        Hit hit = traverseBVH(ray.o, ray.d);
+        if (hit.t == MAXILON) continue;
+        float diff = max(dot(hit.N, normalize(lightPos - hit.Q)), 0.0);
+        color += (hit.mat.color * diff) * (hit.mat.reflectivity + hit.mat.translucency);
+        if (hit.mat.emission > 0.0) {
+            color += hit.mat.color * hit.mat.emission;
+            continue;
         }
-        color += accumColor;
-    }
-
-    if (hit.mat.translucency > 0.0) {
-        vec3 currDir = refract(rayDir, hit.N, 1.0 / hit.mat.refractiveIndex);
-        vec3 currOri = hit.Q - hit.N * MINSILON;
-        vec3 accumColor = vec3(0.0);
-        for (int bounce = 0; bounce < MAX_REFLECTION_DEPTH; bounce++) {
-            Hit rHit = traverseBVH(currOri, currDir);
-            if (rHit.t == MAXILON) break;
-            float currDiff = max(dot(rHit.N, normalize(lightPos - rHit.Q)), 0.0);
-            currOri = rHit.Q - rHit.N * MINSILON;
-            accumColor += (rHit.mat.color * pow(rHit.mat.translucency, bounce + 1)) * currDiff;
-            if (rHit.mat.translucency <= 0.0) break;
-            currDir = refract(currDir, -rHit.N, hit.mat.refractiveIndex);
+        vec3 nextOri = hit.Q + hit.N * MINSILON;
+        if (reflections < MAX_REFLECTION_DEPTH && hit.mat.reflectivity > 0.0 && stackPtr < MAX_STACK_SIZE - 1) {
+            stack[stackPtr++] = Ray(nextOri, reflect(ray.d, hit.N));
+            reflections++;
         }
-        color += accumColor;
+        if (refractions < MAX_REFRACTION_DEPTH && hit.mat.translucency > 0.0 && stackPtr < MAX_STACK_SIZE - 1) {
+            stack[stackPtr++] = Ray(nextOri, refract(ray.d, hit.N, 1.0 / hit.mat.refractiveIndex));
+            refractions++;
+        }
     }
-
-
-    //TODO: emission
-    color += hit.mat.color * hit.mat.emission;
 
     return vec4(color, 1.0);
 }
