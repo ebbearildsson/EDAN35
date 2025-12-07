@@ -2,6 +2,7 @@
 #include <GLFW/glfw3.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/constants.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 #include <iostream>
 #include <algorithm>
 #include <fstream>
@@ -87,15 +88,30 @@ int rnd(int min, int max) {
     return rand() % (max - min) + min;
 }
 
+std::vector<std::string> split(const std::string& s, const std::string& delimiter) {
+    std::vector<std::string> tokens;
+    size_t pos = 0;
+    std::string token;
+    std::string str = s;
+    while ((pos = str.find(delimiter)) != std::string::npos) {
+        token = str.substr(0, pos);
+        tokens.push_back(token);
+        str.erase(0, pos + delimiter.length());
+    }
+    tokens.push_back(str);
+
+    return tokens;
+}
+
 vector<Tri> createObjectFromFile(const string& path) {
     vector<vec3> temp_vertices;
+    vector<vec3> temp_normals;
+    vector<Tri> tris;
     ifstream file(path);
     if (!file.is_open()) {
         throw runtime_error("Failed to open OBJ file: " + path);
     }
     string line;
-    vector<Tri> tris;
-    vector<vec3> temp_normals;
     while (getline(file, line)) {
         if (line.substr(0, 2) == "v ") {
             istringstream s(line.substr(2));
@@ -113,32 +129,33 @@ vector<Tri> createObjectFromFile(const string& path) {
             int nIndex[3];
             char slash;
             
-            for (int i = 0; i < 3; i++) {
-                int vi, vt, vn;
-                s >> vi;
-                //if (temp_normals.empty()) {
-                //    vIndex[i] = vi - 1;
-                //    continue;
-                //}
-                //s >> slash;
-                //s >> vt;
-                //s >> slash;
-                //s >> vn;
-                vIndex[i] = vi - 1;
-                //nIndex[i] = vn - 1;
+            string values = line.substr(2);
+            vector<string> parts = split(values, " ");
+            for (auto& part : parts) {
+                vector<string> indices = split(part, "/");
+                if (indices.size() == 3) {
+                    vIndex[&part - &parts[0]] = stoi(indices[0]) - 1;
+                    nIndex[&part - &parts[0]] = stoi(indices[2]) - 1;
+                } else {
+                    vIndex[&part - &parts[0]] = stoi(indices[0]) - 1;
+                    nIndex[&part - &parts[0]] = -1;
+                }
             }
+
 
             Tri tri;
             tri.v0 = vec3(temp_vertices[vIndex[0]]);
             tri.v1 = vec3(temp_vertices[vIndex[1]]);
             tri.v2 = vec3(temp_vertices[vIndex[2]]);
             tri.c = (tri.v0 + tri.v1 + tri.v2) / 3.0f;
-            //if (temp_normals.empty()) {
-            //    tri.normal = normalize(cross(tri.v1 - tri.v0, tri.v2 - tri.v0));
-            //} else {
-            //    tri.normal = vec3(temp_normals[nIndex[0]]);
-            //}
-            tri.normal = normalize(cross(tri.v1 - tri.v0, tri.v2 - tri.v0));
+            if (nIndex[0] != -1 && nIndex[1] != -1 && nIndex[2] != -1) {
+                vec3 n0 = temp_normals[nIndex[0]];
+                vec3 n1 = temp_normals[nIndex[1]];
+                vec3 n2 = temp_normals[nIndex[2]];
+                tri.normal = normalize((n0 + n1 + n2) / 3.0f);
+            } else {
+                tri.normal = normalize(cross(tri.v1 - tri.v0, tri.v2 - tri.v0));
+            }
             tris.push_back(tri);
         }
     }
@@ -286,7 +303,7 @@ void buildNode(int idx, vec3 minv, vec3 maxv, vector<Type> idxs) {
         }
         nodes[idx].idx = t.idx;
         nodes[idx].type = t.type;
-        nodes[idx].materialIdx = 0;//rnd(0, materials.size());
+        nodes[idx].materialIdx = rnd(0, materials.size());
     } else {
         vec3 extent = maxv - minv; 
         int axis = 0;
@@ -378,15 +395,58 @@ void tightenBounds(int index) {
     }
 }
 
+void translate_object(vector<Tri>& tris, vec3 translation) {
+    for (Tri& tri : tris) {
+        tri.v0 += translation;
+        tri.v1 += translation;
+        tri.v2 += translation;
+        tri.c = (tri.v0 + tri.v1 + tri.v2) / 3.0f;
+    }
+}
+
+void rotate_object_y(vector<Tri>& tris, float angle) {
+    mat4 rotation = glm::rotate(mat4(1.0f), angle, vec3(0.0f, 1.0f, 0.0f));
+    for (Tri& tri : tris) {
+        tri.v0 = vec3(rotation * vec4(tri.v0, 1.0f));
+        tri.v1 = vec3(rotation * vec4(tri.v1, 1.0f));
+        tri.v2 = vec3(rotation * vec4(tri.v2, 1.0f));
+        tri.c = (tri.v0 + tri.v1 + tri.v2) / 3.0f;
+    }
+}
+
+void scale_object(vector<Tri>& tris, float scale) {
+    for (Tri& tri : tris) {
+        tri.v0 *= scale;
+        tri.v1 *= scale;
+        tri.v2 *= scale;
+        tri.c = (tri.v0 + tri.v1 + tri.v2) / 3.0f;
+    }
+}
+
 void init(GLuint triSSBO, GLuint sphSSBO, GLuint bvhSSBO) {
     vector<Type> allIndices;
     vector<Tri> obj = createObjectFromFile("../models/suzanne.obj");
+    rotate_object_y(obj, radians(180.0f));
+    scale_object(obj, 0.5f);
+    //translate_object(obj, vec3(0.0f, -1.0f, 0.0f));
+
+    vector<Tri> box = createObjectFromFile("../models/cornell-box.obj");
+    scale_object(box, 3.0f);
+    translate_object(box, vec3(0.0f, -5.0f, -1.0f));
+    rotate_object_y(box, radians(180.0f));
+
 
     int ind = 0;
     for (int i = 0; i < obj.size(); i++) {
         Tri tri = obj[i];
         triangles.push_back(tri);
         allIndices.push_back({i, 0});
+        ind++;
+    }
+    for (int i = 0; i < box.size(); i++) {
+        Tri tri = box[i];
+        triangles.push_back(tri);
+        allIndices.push_back({ind, 0});
         ind++;
     }
     for (int i = 0; i < N; i++) {
@@ -557,9 +617,9 @@ int main() {
 
     float initialTime = glfwGetTime();
     init(triSSBO, sphSSBO, bvhSSBO);
+    cout << "BVH build time: " << (glfwGetTime() - initialTime) << " seconds\n";
 
     #if (DEBUG == 1)
-    cout << "BVH build time: " << (glfwGetTime() - initialTime) << " seconds\n";
     for (Node& n : nodes) {
         string type = (n.type == 0) ? "⚠️" : (n.type == 1) ? "⭕" : "🌲";
         cout << "Node " << n.ownIdx << ": Index=" << n.idx << ", type=" << type << ", left=" << n.left << ", right=" << n.right << "\n";
