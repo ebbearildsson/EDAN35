@@ -175,10 +175,8 @@ Hit traverseBVH(vec3 rayOri, vec3 rayDir) {
     hit.t = closestT;
     hit.node = nodes[closestN];
     hit.mat = materials[hit.node.matIdx];
-    if (hit.t != MAXILON) {
-        hit.Q = rayOri + hit.t * rayDir;
-        hit.N = getNormal(hit.Q, hit.node);
-    }
+    hit.Q = rayOri + hit.t * rayDir;
+    hit.N = getNormal(hit.Q, hit.node);
     return hit;
 }
 
@@ -208,8 +206,7 @@ vec4 getColor(vec3 rayOri, vec3 rayDir) {
         vec3 diffuse = diff * hit.mat.color;
 
         if (hit.mat.reflectivity > 0.0) {
-            vec3 rd = normalize(reflect(ray.d, N));
-            stack[stackPtr++] = Ray(hit.Q + N * MINSILON, rd, ray.depth + 1);
+            stack[stackPtr++] = Ray(hit.Q + N * MINSILON, normalize(reflect(ray.d, N)), ray.depth + 1);
         }
 
         if (hit.mat.translucency > 0.0) {
@@ -225,34 +222,6 @@ vec4 getColor(vec3 rayOri, vec3 rayDir) {
 
         color += diffuse * (1.0 - hit.mat.reflectivity - hit.mat.translucency);
     }
-
-/*
-    Color c, Ls, Lr, Lt;
-    if (depth < 0) return c;
-
-    Intersection hit, shadow;
-    if (!scene.intersect(ray, hit)) return Color(0.0f, 0.0f, 0.0f);
-
-    const Vec3 lightPos(0.0f, 30.0f, -5.0f);
-
-    float r = hit.material.reflectivity;
-
-    if (r > 0.0f) Lr = traceRay(hit.getReflectedRay(), scene, depth - 1);
-
-    float t = hit.material.transparency;
-
-    if (t > 0.0f) Lt = traceRay(hit.getRefractedRay(), scene, depth - 1);
-
-    float s = std::max(0.0f, hit.normal * (lightPos - hit.position).normalize());
-
-    if (scene.intersect(hit.getShadowRay(lightPos), shadow, true)) s = 0.0f;
-
-    Ls = hit.material.color * s;
-
-    Color L = (1.0f - r - t) * Ls + r * Lr + t * Lt;
-
-    return L;
-    */
     return vec4(color, 1.0);
 }
 
