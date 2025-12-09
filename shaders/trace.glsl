@@ -194,22 +194,33 @@ vec4 getColor(vec3 rayOri, vec3 rayDir) {
     int stackPtr = 0;
     stack[stackPtr++] = Ray(rayOri, rayDir, 0);
     while (stackPtr > 0) {
-        Ray currentRay = stack[--stackPtr];
-        if (currentRay.depth > MAX_REFLECTION_DEPTH) continue;
+        Ray ray = stack[--stackPtr];
+        if (ray.depth > MAX_REFLECTION_DEPTH) continue;
 
-        Hit hit = traverseBVH(currentRay.o, currentRay.d);
-        if (hit.t == MAXILON) {
-            color += vec3(0.0); // Background color
-            continue;
-        }
+        Hit hit = traverseBVH(ray.o, ray.d);
+        if (hit.t == MAXILON) continue;
+
+        vec3 N = normalize(hit.N);
+        N = faceforward(N, ray.d, N);
 
         vec3 lightDir = normalize(lightPos - hit.Q);
-        float diff = max(dot(hit.N, lightDir), 0.0);
-        vec3 diffuse = diff * hit.mat.color * lightIntensity;
+        float diff = abs(dot(N, lightDir));
+        vec3 diffuse = diff * hit.mat.color;
 
         if (hit.mat.reflectivity > 0.0) {
-            vec3 reflectDir = normalize(currentRay.d - 2.0 * dot(currentRay.d, hit.N) * hit.N);
-            stack[stackPtr++] = Ray(hit.Q + hit.N * MINSILON, reflectDir, currentRay.depth + 1);
+            vec3 rd = normalize(reflect(ray.d, N));
+            stack[stackPtr++] = Ray(hit.Q + N * MINSILON, rd, ray.depth + 1);
+        }
+
+        if (hit.mat.translucency > 0.0) {
+            bool entering = dot(N, ray.d) < 0.0;
+            vec3 Ntrans = entering ? N : -N;
+            float eta = entering ? (1.0 / hit.mat.refractiveIndex) : hit.mat.refractiveIndex;
+            vec3 rd = refract(normalize(ray.d), Ntrans, eta);
+            if (length(rd) > 0.0) {
+                vec3 offset = entering ? (-Ntrans * MINSILON) : (Ntrans * MINSILON);
+                stack[stackPtr++] = Ray(hit.Q + offset, normalize(rd), ray.depth + 1);
+            }
         }
 
         color += diffuse * (1.0 - hit.mat.reflectivity - hit.mat.translucency);

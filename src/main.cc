@@ -10,11 +10,12 @@
 #include <string>
 #include <cmath>
 #include <vector>
+#include <unordered_map>
 
 using namespace glm;
 using namespace std;
 
-#define N 2
+#define N 0
 #define DEBUG 0
 int WIDTH = 800, HEIGHT = 600;
 
@@ -31,6 +32,7 @@ struct Tri {
     vec3 v2;
     vec3 c;
     vec3 normal;
+    int materialIdx;
 };
 
 struct Sph {
@@ -79,6 +81,7 @@ vector<Node> nodes;
 vector<Tri> triangles;
 vector<Sph> spheres;
 vector<Material> materials;
+std::unordered_map<string, int> materialMap;
 
 float rnd(float min, float max) {
     return ((float)rand() / RAND_MAX) * (max - min) + min;
@@ -88,12 +91,12 @@ int rnd(int min, int max) {
     return rand() % (max - min) + min;
 }
 
-std::vector<std::string> split(const std::string& s, const std::string& delimiter) {
-    std::vector<std::string> tokens;
+vector<string> split(const string& s, const string& delimiter) {
+    vector<string> tokens;
     size_t pos = 0;
-    std::string token;
-    std::string str = s;
-    while ((pos = str.find(delimiter)) != std::string::npos) {
+    string token;
+    string str = s;
+    while ((pos = str.find(delimiter)) != string::npos) {
         token = str.substr(0, pos);
         tokens.push_back(token);
         str.erase(0, pos + delimiter.length());
@@ -112,8 +115,18 @@ vector<Tri> createObjectFromFile(const string& path) {
         throw runtime_error("Failed to open OBJ file: " + path);
     }
     string line;
+    int currentMaterial = -1;
     while (getline(file, line)) {
-        if (line.substr(0, 2) == "v ") {
+        if (line.substr(0, 6) == "usemtl") {
+            istringstream s(line.substr(6));
+            string materialName;
+            s >> materialName;
+            if (materialMap.find(materialName) != materialMap.end()) {
+                currentMaterial = materialMap[materialName];
+            } else {
+                currentMaterial = -1;
+            }
+        } else if (line.substr(0, 2) == "v ") {
             istringstream s(line.substr(2));
             vec3 v;
             s >> v.x; s >> v.y; s >> v.z;
@@ -142,7 +155,6 @@ vector<Tri> createObjectFromFile(const string& path) {
                 }
             }
 
-
             Tri tri;
             tri.v0 = vec3(temp_vertices[vIndex[0]]);
             tri.v1 = vec3(temp_vertices[vIndex[1]]);
@@ -156,6 +168,7 @@ vector<Tri> createObjectFromFile(const string& path) {
             } else {
                 tri.normal = normalize(cross(tri.v1 - tri.v0, tri.v2 - tri.v0));
             }
+            tri.materialIdx = currentMaterial;
             tris.push_back(tri);
         }
     }
@@ -303,7 +316,11 @@ void buildNode(int idx, vec3 minv, vec3 maxv, vector<Type> idxs) {
         }
         nodes[idx].idx = t.idx;
         nodes[idx].type = t.type;
-        nodes[idx].materialIdx = 1;//rnd(0, materials.size());
+        if (t.type == 0) {
+            int material = triangles[t.idx].materialIdx;
+            if (material >= 0) nodes[idx].materialIdx = material;
+            else nodes[idx].materialIdx = 0;//rnd(0, materials.size());
+        } else nodes[idx].materialIdx = 0;//rnd(0, materials.size());
     } else {
         vec3 extent = maxv - minv; 
         int axis = 0;
@@ -586,7 +603,7 @@ int main() {
 
     Material reflectiveRed;
     reflectiveRed.color = vec4(1.0f, 0.0f, 0.0f, 1.0f);
-    reflectiveRed.reflectivity = 0.8f;
+    reflectiveRed.reflectivity = 0.6f;
     reflectiveRed.translucency = 0.0f;
     reflectiveRed.emission = 0.0f;
     reflectiveRed.refractiveIndex = 1.0f;
@@ -595,7 +612,7 @@ int main() {
     Material translucentBlue;
     translucentBlue.color = vec4(0.0f, 0.0f, 1.0f, 1.0f);
     translucentBlue.reflectivity = 0.0f;
-    translucentBlue.translucency = 0.8f;
+    translucentBlue.translucency = 0.6f;
     translucentBlue.emission = 0.0f;
     translucentBlue.refractiveIndex = 1.5f;
     materials.push_back(translucentBlue);
@@ -607,6 +624,12 @@ int main() {
     emissiveGreen.emission = 0.5f;
     emissiveGreen.refractiveIndex = 1.0f;
     materials.push_back(emissiveGreen);
+
+    materialMap["Khaki"] = 0;
+    materialMap["BloodyRed"] = 1;
+    materialMap["DarkGreen"] = 2;
+    materialMap["Light"] = 3;
+
 
     GLuint triSSBO, sphSSBO, bvhSSBO, materialSSBO;
     glGenBuffers(1, &materialSSBO);
