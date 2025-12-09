@@ -134,7 +134,7 @@ float intersect(vec3 rayOri, vec3 rayDir, Node n) {
 vec3 getNormal(vec3 point, Node node) {
     if (node.type == 0) {
         Triangle tri = triangles[node.idx];
-        return tri.n;
+        return normalize(tri.n);
     } else if (node.type == 1) {
         Sphere sph = spheres[node.idx];
         return normalize(point - sph.center);
@@ -183,8 +183,8 @@ Hit traverseBVH(vec3 rayOri, vec3 rayDir) {
 vec4 getColor(vec3 rayOri, vec3 rayDir) {
     vec3 color = vec3(0.0);
     struct Ray {
-        vec3 o;
-        vec3 d;
+        vec3 ori;
+        vec3 dir;
         int depth;
     };
 
@@ -195,29 +195,30 @@ vec4 getColor(vec3 rayOri, vec3 rayDir) {
         Ray ray = stack[--stackPtr];
         if (ray.depth > MAX_REFLECTION_DEPTH) continue;
 
-        Hit hit = traverseBVH(ray.o, ray.d);
+        Hit hit = traverseBVH(ray.ori, ray.dir);
         if (hit.t == MAXILON) continue;
 
-        vec3 N = normalize(hit.N);
-        N = faceforward(N, ray.d, N);
+        vec3 N = faceforward(hit.N, ray.dir, hit.N);
 
-        vec3 lightDir = normalize(lightPos - hit.Q);
-        float diff = abs(dot(N, lightDir));
-        vec3 diffuse = diff * hit.mat.color;
+        vec3 diffuse = abs(dot(N, normalize(lightPos - hit.Q))) * hit.mat.color;
 
         if (hit.mat.reflectivity > 0.0) {
-            stack[stackPtr++] = Ray(hit.Q + N * MINSILON, normalize(reflect(ray.d, N)), ray.depth + 1);
+            stack[stackPtr++] = Ray(hit.Q + N * MINSILON, normalize(reflect(ray.dir, N)), ray.depth + 1);
         }
 
         if (hit.mat.translucency > 0.0) {
-            bool entering = dot(N, ray.d) < 0.0;
+            bool entering = dot(N, ray.dir) < 0.0;
             vec3 Ntrans = entering ? N : -N;
             float eta = entering ? (1.0 / hit.mat.refractiveIndex) : hit.mat.refractiveIndex;
-            vec3 rd = refract(normalize(ray.d), Ntrans, eta);
+            vec3 rd = refract(normalize(ray.dir), Ntrans, eta);
             if (length(rd) > 0.0) {
                 vec3 offset = entering ? (-Ntrans * MINSILON) : (Ntrans * MINSILON);
                 stack[stackPtr++] = Ray(hit.Q + offset, normalize(rd), ray.depth + 1);
             }
+        }
+
+        if (hit.mat.emission > 0.0) {
+            color += hit.mat.color * hit.mat.emission;
         }
 
         color += diffuse * (1.0 - hit.mat.reflectivity - hit.mat.translucency);
@@ -231,7 +232,7 @@ void main() {
     uv = uv * 2.0 - 1.0;
     uv.x *= aspect;
     vec3 rayDir = normalize(camForward + uv.x * tan(fov / 2.0) * normalize(cross(camForward, camUp)) + uv.y * tan(fov / 2.0) * camUp);
-    int d = int(floor(distance(vec2(pixel), mousePos)));
+    int d = int(floor(distance(vec2(pixel), mousePos))); //TODO: Use texture to get distance and sampling info
     vec4 color = getColor(camPos, rayDir);
     if (d < MAX_RAY_DISTANCE) {
         int ray_density = int((MAX_RAY_DISTANCE - d) / MAX_RAY_DENSITY); //TODO: Handle this better

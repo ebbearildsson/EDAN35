@@ -17,7 +17,7 @@ using namespace std;
 
 #define N 10
 #define DEBUG 0
-int WIDTH = 800, HEIGHT = 600;
+int WIDTH = 600, HEIGHT = 600;
 
 struct GPUTri { //TODO: compact this
     vec4 v0;
@@ -325,12 +325,12 @@ void buildNode(int idx, vec3 minv, vec3 maxv, vector<Type> idxs) {
         if (t.type == 0) {
             int material = triangles[t.idx].materialIdx;
             if (material >= 0) nodes[idx].materialIdx = material;
-            else rnd(0, materials.size());
+            else nodes[idx].materialIdx = 0;
         } 
         if (t.type == 1) {
             int material = spheres[t.idx].materialIdx;
             if (material >= 0) nodes[idx].materialIdx = material;
-            else rnd(0, materials.size());
+            else nodes[idx].materialIdx = 0;
         } 
     } else {
         vec3 extent = maxv - minv; 
@@ -442,6 +442,26 @@ void rotate_object_y(vector<Tri>& tris, float angle) {
     }
 }
 
+void rotate_object_x(vector<Tri>& tris, float angle) {
+    mat4 rotation = glm::rotate(mat4(1.0f), angle, vec3(1.0f, 0.0f, 0.0f));
+    for (Tri& tri : tris) {
+        tri.v0 = vec3(rotation * vec4(tri.v0, 1.0f));
+        tri.v1 = vec3(rotation * vec4(tri.v1, 1.0f));
+        tri.v2 = vec3(rotation * vec4(tri.v2, 1.0f));
+        tri.c = (tri.v0 + tri.v1 + tri.v2) / 3.0f;
+    }
+}
+
+void rotate_object_z(vector<Tri>& tris, float angle) {
+    mat4 rotation = glm::rotate(mat4(1.0f), angle, vec3(0.0f, 0.0f, 1.0f));
+    for (Tri& tri : tris) {
+        tri.v0 = vec3(rotation * vec4(tri.v0, 1.0f));
+        tri.v1 = vec3(rotation * vec4(tri.v1, 1.0f));
+        tri.v2 = vec3(rotation * vec4(tri.v2, 1.0f));
+        tri.c = (tri.v0 + tri.v1 + tri.v2) / 3.0f;
+    }
+}
+
 void scale_object(vector<Tri>& tris, float scale) {
     for (Tri& tri : tris) {
         tri.v0 *= scale;
@@ -451,30 +471,36 @@ void scale_object(vector<Tri>& tris, float scale) {
     }
 }
 
-void init(GLuint triSSBO, GLuint sphSSBO, GLuint bvhSSBO) {
-    vector<Type> allIndices;
-    //vector<Tri> obj = createObjectFromFile("../models/suzanne.obj");
-    //rotate_object_y(obj, radians(180.0f));
-    //scale_object(obj, 0.5f);
-    //translate_object(obj, vec3(0.0f, -1.0f, 0.0f));
+void add_object(vector<Tri>& tris, vector<Type>& indices, int& ind, int materialIdx = -1) {
+    for (int i = 0; i < tris.size(); i++) {
+        Tri tri = tris[i];
+        if (materialIdx != -1) tri.materialIdx = materialIdx;
+        triangles.push_back(tri);
+        indices.push_back({ind, 0});
+        ind++;
+    }
+    
+}
+
+void generate_scene(vector<Type>& indices, int& ind) {
+    vector<Tri> suz = createObjectFromFile("../models/suzanne.obj");
+    rotate_object_x(suz, radians(-30.0f));
+    rotate_object_y(suz, radians(10.0f));
+    scale_object(suz, 1.0f);
+    translate_object(suz, vec3(-1.75f, 1.8f, 0.0f));
 
     vector<Tri> box = createObjectFromFile("../models/cornell-box.obj");
     scale_object(box, 2.0f);
     translate_object(box, vec3(0.4f, -5.0f, 8.0f));
 
-    int ind = 0;
-    //for (int i = 0; i < obj.size(); i++) {
-    //    Tri tri = obj[i];
-    //    triangles.push_back(tri);
-    //    allIndices.push_back({i, 0});
-    //    ind++;
-    //}
-    for (int i = 0; i < box.size(); i++) {
-        Tri tri = box[i];
-        triangles.push_back(tri);
-        allIndices.push_back({ind, 0});
-        ind++;
-    }
+    vector<Tri> spot = createObjectFromFile("../models/spot.obj");
+    rotate_object_y(spot, radians(130.0f));
+    scale_object(spot, 1.0f);
+    translate_object(spot, vec3(1.2f, -1.3f, 4.2f));
+
+    add_object(suz, indices, ind);
+    add_object(box, indices, ind);
+    add_object(spot, indices, ind);
 
     const float s = 5.0f;
     const float ts = 1.0f;
@@ -490,7 +516,7 @@ void init(GLuint triSSBO, GLuint sphSSBO, GLuint bvhSSBO) {
         tri.normal = normalize(cross(tri.v1 - tri.v0, tri.v2 - tri.v0));
         tri.materialIdx = 2;
         triangles.push_back(tri);
-        allIndices.push_back({ind, 0});
+        indices.push_back({ind, 0});
         ind++;
         #if (DEBUG == 1)
         cout << "Triangle " << i << ": \n";
@@ -506,7 +532,7 @@ void init(GLuint triSSBO, GLuint sphSSBO, GLuint bvhSSBO) {
         sph.radius = rnd(0.1f, 0.8f);
         sph.materialIdx = 1;
         spheres.push_back(sph);
-        allIndices.push_back({i, 1});
+        indices.push_back({i, 1});
 
         #if (DEBUG == 1)
         cout << "Sphere " << i << ": \n";
@@ -514,6 +540,12 @@ void init(GLuint triSSBO, GLuint sphSSBO, GLuint bvhSSBO) {
         cout << "  radius: " << sph.radius << "\n";
         #endif
     }
+}
+
+void init(GLuint triSSBO, GLuint sphSSBO, GLuint bvhSSBO) {
+    vector<Type> allIndices;
+    int ind = 0;
+    generate_scene(allIndices, ind);
     
     buildNode(0, vec3(-10.0f), vec3(10.0f), allIndices);
     tightenBounds(0); //? Probably not needed if bounds are calculated correctly during build
@@ -535,21 +567,27 @@ void init(GLuint triSSBO, GLuint sphSSBO, GLuint bvhSSBO) {
         gpuSphs.push_back(gsph);
     }
 
-    cout << "Triangle size: " << (gpuTris.size() * sizeof(GPUTri)) / 1000000.0 << " MB" << "\n";
+    cout << "Memory Usage:\n";
+    cout << " - Triangle size: " << (gpuTris.size() * sizeof(GPUTri)) / 1000000.0 << " MB" << "\n";
+    cout << " - Sphere size: " << (gpuSphs.size() * sizeof(GPUSph)) / 1000000.0 << " MB" << "\n";
+    cout << " - BVH size: " << (nodes.size() * sizeof(Node)) / 1000000.0 << " MB" << "\n";
+    cout << "Total Amounts:\n";
+    cout << " - triangles: " << triangles.size() << "\n";
+    cout << " - spheres: " << spheres.size() << "\n";
+    cout << " - BVH nodes: " << nodes.size() << "\n";
+
     glGenBuffers(1, &triSSBO);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, triSSBO);
     glBufferData(GL_SHADER_STORAGE_BUFFER, gpuTris.size() * sizeof(GPUTri), gpuTris.data(), GL_DYNAMIC_DRAW);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, triSSBO); // binding = 0 for SSBO
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
     
-    cout << "Sphere size: " << (spheres.size() * sizeof(GPUSph)) / 1000000.0 << " MB" << "\n";
     glGenBuffers(1, &sphSSBO);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, sphSSBO);
     glBufferData(GL_SHADER_STORAGE_BUFFER, gpuSphs.size() * sizeof(GPUSph), gpuSphs.data(), GL_DYNAMIC_DRAW);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, sphSSBO); // binding = 1 for SSBO
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 
-    cout << "BVH size: " << (nodes.size() * sizeof(Node)) / 1000000.0 << " MB" << "\n";
     glGenBuffers(1, &bvhSSBO);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, bvhSSBO);
     glBufferData(GL_SHADER_STORAGE_BUFFER, nodes.size() * sizeof(Node), nodes.data(), GL_DYNAMIC_DRAW);
@@ -633,7 +671,7 @@ int main() {
     Material translucentBlue;
     translucentBlue.color = vec4(0.0f, 0.0f, 1.0f, 1.0f);
     translucentBlue.reflectivity = 0.0f;
-    translucentBlue.translucency = 0.6f;
+    translucentBlue.translucency = 0.2f;
     translucentBlue.emission = 0.0f;
     translucentBlue.refractiveIndex = 1.5f;
     materials.push_back(translucentBlue);
