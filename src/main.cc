@@ -303,7 +303,7 @@ void buildNode(int idx, vec3 minv, vec3 maxv, vector<Type> idxs) {
         }
         nodes[idx].idx = t.idx;
         nodes[idx].type = t.type;
-        nodes[idx].materialIdx = rnd(0, materials.size());
+        nodes[idx].materialIdx = 1;//rnd(0, materials.size());
     } else {
         vec3 extent = maxv - minv; 
         int axis = 0;
@@ -425,24 +425,24 @@ void scale_object(vector<Tri>& tris, float scale) {
 
 void init(GLuint triSSBO, GLuint sphSSBO, GLuint bvhSSBO) {
     vector<Type> allIndices;
-    vector<Tri> obj = createObjectFromFile("../models/suzanne.obj");
-    rotate_object_y(obj, radians(180.0f));
-    scale_object(obj, 0.5f);
+    //vector<Tri> obj = createObjectFromFile("../models/suzanne.obj");
+    //rotate_object_y(obj, radians(180.0f));
+    //scale_object(obj, 0.5f);
     //translate_object(obj, vec3(0.0f, -1.0f, 0.0f));
 
     vector<Tri> box = createObjectFromFile("../models/cornell-box.obj");
-    scale_object(box, 3.0f);
+    scale_object(box, 2.0f);
     translate_object(box, vec3(0.0f, -5.0f, -1.0f));
     rotate_object_y(box, radians(180.0f));
 
 
     int ind = 0;
-    for (int i = 0; i < obj.size(); i++) {
-        Tri tri = obj[i];
-        triangles.push_back(tri);
-        allIndices.push_back({i, 0});
-        ind++;
-    }
+    //for (int i = 0; i < obj.size(); i++) {
+    //    Tri tri = obj[i];
+    //    triangles.push_back(tri);
+    //    allIndices.push_back({i, 0});
+    //    ind++;
+    //}
     for (int i = 0; i < box.size(); i++) {
         Tri tri = box[i];
         triangles.push_back(tri);

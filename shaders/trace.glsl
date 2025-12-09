@@ -4,8 +4,8 @@ const float EPSILON = 1e-6;
 const float MINSILON = 1e-3;
 const float MAXILON = 1e6;
 const int MAX_STACK_SIZE = 128;
-const int MAX_REFLECTION_DEPTH = 5;
-const int MAX_REFRACTION_DEPTH = 5;
+const int MAX_REFLECTION_DEPTH = 2;
+const int MAX_REFRACTION_DEPTH = 0;
 const float MAX_RAY_DISTANCE = 200.0;
 const float MAX_RAY_DENSITY = 100.0;
 
@@ -165,6 +165,12 @@ Hit traverseBVH(vec3 rayOri, vec3 rayDir) {
         }
     }
 
+    if (closestN == -1 || closestT == MAXILON) {
+        Hit noHit;
+        noHit.t = MAXILON;
+        return noHit;
+    }
+
     Hit hit;
     hit.t = closestT;
     hit.node = nodes[closestN];
@@ -177,38 +183,65 @@ Hit traverseBVH(vec3 rayOri, vec3 rayDir) {
 }
 
 vec4 getColor(vec3 rayOri, vec3 rayDir) {
-    vec3 color = vec3(0.2);
+    vec3 color = vec3(0.0);
     struct Ray {
         vec3 o;
         vec3 d;
+        int depth;
     };
 
     Ray stack[MAX_STACK_SIZE];
     int stackPtr = 0;
-    int reflections = 0;
-    int refractions = 0;
-    stack[stackPtr++] = Ray(rayOri, rayDir);
+    stack[stackPtr++] = Ray(rayOri, rayDir, 0);
     while (stackPtr > 0) {
-        Ray ray = stack[--stackPtr];
-        Hit hit = traverseBVH(ray.o, ray.d);
-        if (hit.t == MAXILON) continue;
-        float diff = max(dot(hit.N, normalize(lightPos - hit.Q)), 0.0);
-        color += (hit.mat.color * diff) * (hit.mat.reflectivity + hit.mat.translucency);
-        if (hit.mat.emission > 0.0) {
-            color += hit.mat.color * hit.mat.emission;
+        Ray currentRay = stack[--stackPtr];
+        if (currentRay.depth > MAX_REFLECTION_DEPTH) continue;
+
+        Hit hit = traverseBVH(currentRay.o, currentRay.d);
+        if (hit.t == MAXILON) {
+            color += vec3(0.0); // Background color
             continue;
         }
-        vec3 nextOri = hit.Q + hit.N * MINSILON;
-        if (reflections < MAX_REFLECTION_DEPTH && hit.mat.reflectivity > 0.0 && stackPtr < MAX_STACK_SIZE - 1) {
-            stack[stackPtr++] = Ray(nextOri, reflect(ray.d, hit.N));
-            reflections++;
+
+        vec3 lightDir = normalize(lightPos - hit.Q);
+        float diff = max(dot(hit.N, lightDir), 0.0);
+        vec3 diffuse = diff * hit.mat.color * lightIntensity;
+
+        if (hit.mat.reflectivity > 0.0) {
+            vec3 reflectDir = normalize(currentRay.d - 2.0 * dot(currentRay.d, hit.N) * hit.N);
+            stack[stackPtr++] = Ray(hit.Q + hit.N * MINSILON, reflectDir, currentRay.depth + 1);
         }
-        if (refractions < MAX_REFRACTION_DEPTH && hit.mat.translucency > 0.0 && stackPtr < MAX_STACK_SIZE - 1) {
-            stack[stackPtr++] = Ray(nextOri, refract(ray.d, hit.N, 1.0 / hit.mat.refractiveIndex));
-            refractions++;
-        }
+
+        color += diffuse * (1.0 - hit.mat.reflectivity - hit.mat.translucency);
     }
 
+/*
+    Color c, Ls, Lr, Lt;
+    if (depth < 0) return c;
+
+    Intersection hit, shadow;
+    if (!scene.intersect(ray, hit)) return Color(0.0f, 0.0f, 0.0f);
+
+    const Vec3 lightPos(0.0f, 30.0f, -5.0f);
+
+    float r = hit.material.reflectivity;
+
+    if (r > 0.0f) Lr = traceRay(hit.getReflectedRay(), scene, depth - 1);
+
+    float t = hit.material.transparency;
+
+    if (t > 0.0f) Lt = traceRay(hit.getRefractedRay(), scene, depth - 1);
+
+    float s = std::max(0.0f, hit.normal * (lightPos - hit.position).normalize());
+
+    if (scene.intersect(hit.getShadowRay(lightPos), shadow, true)) s = 0.0f;
+
+    Ls = hit.material.color * s;
+
+    Color L = (1.0f - r - t) * Ls + r * Lr + t * Lt;
+
+    return L;
+    */
     return vec4(color, 1.0);
 }
 
