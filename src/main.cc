@@ -117,9 +117,7 @@ vector<Tri> createObjectFromFile(const string& path) {
     vector<vec3> temp_normals;
     vector<Tri> tris;
     ifstream file(path);
-    if (!file.is_open()) {
-        throw runtime_error("Failed to open OBJ file: " + path);
-    }
+    // if (!file.is_open()) throw runtime_error("Failed to open OBJ file: " + path);
     string line;
     int currentMaterial = -1;
     while (getline(file, line)) {
@@ -185,7 +183,7 @@ vector<Tri> createObjectFromFile(const string& path) {
 
 string loadFile(const string& path) {
     ifstream file(path);
-    if (!file.is_open()) throw runtime_error("Failed to open file: " + path);
+    // if (!file.is_open()) throw runtime_error("Failed to open file: " + path);
     stringstream ss;
     ss << file.rdbuf();
     return ss.str();
@@ -439,6 +437,7 @@ void rotate_object_y(vector<Tri>& tris, float angle) {
         tri.v1 = vec3(rotation * vec4(tri.v1, 1.0f));
         tri.v2 = vec3(rotation * vec4(tri.v2, 1.0f));
         tri.c = (tri.v0 + tri.v1 + tri.v2) / 3.0f;
+        tri.normal = normalize(vec3(rotation * vec4(tri.normal, 0.0f)));
     }
 }
 
@@ -449,6 +448,7 @@ void rotate_object_x(vector<Tri>& tris, float angle) {
         tri.v1 = vec3(rotation * vec4(tri.v1, 1.0f));
         tri.v2 = vec3(rotation * vec4(tri.v2, 1.0f));
         tri.c = (tri.v0 + tri.v1 + tri.v2) / 3.0f;
+        tri.normal = normalize(vec3(rotation * vec4(tri.normal, 0.0f)));
     }
 }
 
@@ -459,6 +459,7 @@ void rotate_object_z(vector<Tri>& tris, float angle) {
         tri.v1 = vec3(rotation * vec4(tri.v1, 1.0f));
         tri.v2 = vec3(rotation * vec4(tri.v2, 1.0f));
         tri.c = (tri.v0 + tri.v1 + tri.v2) / 3.0f;
+        tri.normal = normalize(vec3(rotation * vec4(tri.normal, 0.0f)));
     }
 }
 
@@ -479,7 +480,6 @@ void add_object(vector<Tri>& tris, vector<Type>& indices, int& ind, int material
         indices.push_back({ind, 0});
         ind++;
     }
-    
 }
 
 void generate_scene(vector<Type>& indices, int& ind) {
