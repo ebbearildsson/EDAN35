@@ -40,9 +40,13 @@ find_package(glfw3 3.3 REQUIRED)
 add_executable(Raytracer
     src/main.cc
     src/glad.c
+    src/utilities.cc
 )
 
-target_include_directories(Raytracer PRIVATE include)
+target_include_directories(Raytracer PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
 target_link_libraries(Raytracer PRIVATE glfw)
 
 if(APPLE)
