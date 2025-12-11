@@ -1,7 +1,9 @@
 #pragma once
 #include <glm/glm.hpp>
 
-#include <glm/glm.hpp>
+#include <string>
+#include <vector>
+#include <unordered_map>
 
 using namespace glm;
 
@@ -78,3 +80,9 @@ struct Type {
 static_assert(sizeof(GPUTri) == 64, "GPUTri size incorrect");
 static_assert(sizeof(Node) == 48, "Node size incorrect");
 static_assert(sizeof(GPUSph) == 16, "GPUSph size incorrect");
+
+extern std::vector<Node> nodes;
+extern std::vector<Tri> triangles;
+extern std::vector<Sph> spheres;
+extern std::vector<Material> materials;
+extern std::unordered_map<std::string, int> materialMap;

@@ -1,11 +1,10 @@
 #version 430 core
 
+const int DEPTH = 2;
 const float EPSILON = 1e-6;
 const float MINSILON = 1e-3;
 const float MAXILON = 1e6;
 const int MAX_STACK_SIZE = 128;
-const int MAX_REFLECTION_DEPTH = 2;
-const int MAX_REFRACTION_DEPTH = 0;
 const float MAX_RAY_DISTANCE = 200.0;
 const float MAX_RAY_DENSITY = 100.0;
 
@@ -193,7 +192,7 @@ vec4 getColor(vec3 rayOri, vec3 rayDir) {
     stack[stackPtr++] = Ray(rayOri, rayDir, 0);
     while (stackPtr > 0) {
         Ray ray = stack[--stackPtr];
-        if (ray.depth > MAX_REFLECTION_DEPTH) continue;
+        if (ray.depth > DEPTH) continue;
 
         Hit hit = traverseBVH(ray.ori, ray.dir);
         if (hit.t == MAXILON) continue;

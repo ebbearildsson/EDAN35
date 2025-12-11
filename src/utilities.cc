@@ -1,16 +1,20 @@
 
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
+
 #include <glm/glm.hpp>
 #include <glm/gtc/constants.hpp>
 #include <glm/gtc/matrix_transform.hpp>
-#include <structs.hh>
+
+#include <unordered_map>
 #include <iostream>
 #include <fstream>
 #include <sstream>
 #include <string>
 #include <vector>
-#include <unordered_map>
+
+#include <utilities.hh>
+#include <structs.hh>
 
 using namespace glm;
 using namespace std;
@@ -195,11 +199,7 @@ void createLights() {
     Light light = { vec3(0.0f, 3.5f, 3.5f), 1.0f};
 
     GLuint lightUBO;
-    glGenBuffers(1, &lightUBO);
-    glBindBuffer(GL_UNIFORM_BUFFER, lightUBO);
-    glBufferData(GL_UNIFORM_BUFFER, sizeof(Light), &light, GL_DYNAMIC_DRAW);
-    glBindBufferBase(GL_UNIFORM_BUFFER, 1, lightUBO); // binding = 1 for UBO
-    glBindBuffer(GL_UNIFORM_BUFFER, 0);
+    createAndFillUBO<Light>(lightUBO, 1, light);
 }
 
 void createCamera(GLuint &cameraUBO, Camera &cam, int width, int height) {
@@ -211,11 +211,7 @@ void createCamera(GLuint &cameraUBO, Camera &cam, int width, int height) {
         vec3(0.0f, 1.0f, 0.0f),
         0.0f
     };
-    glGenBuffers(1, &cameraUBO);
-    glBindBuffer(GL_UNIFORM_BUFFER, cameraUBO);
-    glBufferData(GL_UNIFORM_BUFFER, sizeof(Camera), &cam, GL_DYNAMIC_DRAW);
-    glBindBufferBase(GL_UNIFORM_BUFFER, 0, cameraUBO); // binding = 0 for UBO
-    glBindBuffer(GL_UNIFORM_BUFFER, 0);
+    createAndFillUBO<Camera>(cameraUBO, 0, cam);
 }
 
 void translate_object(vector<Tri>& tris, vec3 translation) {
@@ -269,7 +265,7 @@ void scale_object(vector<Tri>& tris, float scale) {
     }
 }
 
-void add_object(vector<Tri>& tris, vector<Type>& indices, vector<Tri>& triangles, int& ind, int materialIdx = -1) {
+void add_object(std::vector<Tri>& tris, std::vector<Type>& indices, int& ind, int materialIdx) {
     for (int i = 0; i < tris.size(); i++) {
         Tri tri = tris[i];
         if (materialIdx != -1) tri.materialIdx = materialIdx;

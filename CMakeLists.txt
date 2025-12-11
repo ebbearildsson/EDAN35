@@ -41,6 +41,8 @@ add_executable(Raytracer
     src/main.cc
     src/glad.c
     src/utilities.cc
+    src/bvh.cc
+    src/structs.cc
 )
 
 target_include_directories(Raytracer PRIVATE

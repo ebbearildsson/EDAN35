@@ -25,7 +25,7 @@ void rotate_object_x(std::vector<Tri>& tris, float angle);
 void rotate_object_z(std::vector<Tri>& tris, float angle);
 void scale_object(std::vector<Tri>& tris, float scale);
 void translate_object(std::vector<Tri>& tris, glm::vec3 translation);
-void add_object(std::vector<Tri>& tris, std::vector<Type>& indices, std::vector<Tri>& triangles, int& ind, int materialIdx = -1);
+void add_object(std::vector<Tri>& tris, std::vector<Type>& indices, int& ind, int materialIdx = -1);
 
 // File IO
 std::string loadFile(const std::string& path);
