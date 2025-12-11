@@ -1,3 +1,0 @@
-/home/pear/Code/EDAN35/build/CMakeFiles/Raytracer.dir
-/home/pear/Code/EDAN35/build/CMakeFiles/edit_cache.dir
-/home/pear/Code/EDAN35/build/CMakeFiles/rebuild_cache.dir
