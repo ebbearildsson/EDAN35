@@ -209,7 +209,7 @@ void createCamera(GLuint &cameraUBO, Camera &cam, int width, int height) {
         vec3(0.0f, 0.0f, -1.0f),
         (float)width / (float)height,
         vec3(0.0f, 1.0f, 0.0f),
-        0.0f
+        0
     };
     createAndFillUBO<Camera>(cameraUBO, 0, cam);
 }

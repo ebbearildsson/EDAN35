@@ -34,7 +34,7 @@ struct Camera {
     vec3 forward;
     float aspect;
     vec3 up;
-    float _pad;
+    int moved;
 };
 
 struct Light {

@@ -57,12 +57,14 @@ layout (std140, binding = 0) uniform CameraData {
     vec3 camForward;
     float aspect;
     vec3 camUp;
-    float _pad;
+    int moved;
 };
 
 layout (std140, binding = 1) uniform LightData { vec3 lightPos; float lightIntensity; };
 
 layout (std140, binding = 2) uniform Mouse { vec2 mousePos; };
+
+layout (std140, binding = 3) uniform Time { int time; };
 
 layout (std430, binding = 0) buffer Triangles { Triangle triangles[]; };
 
@@ -179,7 +181,7 @@ Hit traverseBVH(vec3 rayOri, vec3 rayDir) {
     return hit;
 }
 
-vec4 getColor(vec3 rayOri, vec3 rayDir) {
+vec4 getColorRay(vec3 rayOri, vec3 rayDir) {
     vec3 color = vec3(0.0);
     struct Ray {
         vec3 ori;
@@ -199,12 +201,6 @@ vec4 getColor(vec3 rayOri, vec3 rayDir) {
 
         vec3 N = faceforward(hit.N, ray.dir, hit.N);
 
-        vec3 diffuse = abs(dot(N, normalize(lightPos - hit.Q))) * hit.mat.color;
-
-        if (hit.mat.reflectivity > 0.0) {
-            stack[stackPtr++] = Ray(hit.Q + N * MINSILON, normalize(reflect(ray.dir, N)), ray.depth + 1);
-        }
-
         if (hit.mat.translucency > 0.0) {
             bool entering = dot(N, ray.dir) < 0.0;
             vec3 Ntrans = entering ? N : -N;
@@ -214,15 +210,97 @@ vec4 getColor(vec3 rayOri, vec3 rayDir) {
                 vec3 offset = entering ? (-Ntrans * MINSILON) : (Ntrans * MINSILON);
                 stack[stackPtr++] = Ray(hit.Q + offset, normalize(rd), ray.depth + 1);
             }
+        } else { // if it isnt translucent create shadow ray
+            vec3 lightDir = normalize(lightPos - hit.Q);
+            Hit shadowHit = traverseBVH(hit.Q + N * MINSILON, lightDir);
+            float lightDist = length(lightPos - hit.Q);
+            if (shadowHit.t < lightDist) {
+                continue;
+            }
+
+        }
+
+        if (hit.mat.reflectivity > 0.0) {
+            stack[stackPtr++] = Ray(hit.Q + N * MINSILON, normalize(reflect(ray.dir, N)), ray.depth + 1);
         }
 
         if (hit.mat.emission > 0.0) {
             color += hit.mat.color * hit.mat.emission;
         }
 
+        vec3 diffuse = abs(dot(N, normalize(lightPos - hit.Q))) * hit.mat.color;
+
         color += diffuse * (1.0 - hit.mat.reflectivity - hit.mat.translucency);
     }
     return vec4(color, 1.0);
+}
+
+vec3 addJitter(vec3 dir, inout uint rng) {
+    float u1 = float(rng) / 4294967295.0;
+    rng = rng * 1664525u + 1013904223u;
+    float u2 = float(rng) / 4294967295.0;
+    rng = rng * 1664525u + 1013904223u;
+
+    float r = sqrt(u1);
+    float theta = 2.0 * 3.14159265359 * u2;
+
+    vec3 w = normalize(dir);
+    vec3 u = normalize(cross(abs(w.x) > 0.1 ? vec3(0,1,0) : vec3(1,0,0), w));
+    vec3 v = cross(w, u);
+
+    vec3 jitteredDir = r * cos(theta) * u + r * sin(theta) * v + sqrt(1.0 - u1) * w;
+    return normalize(jitteredDir);
+}
+
+vec4 getColorPath(vec3 rayOri, vec3 rayDir, vec3 prevColor, int frames) {
+    vec3 collectedLight = vec3(0.0);
+
+    uvec3 gid = gl_GlobalInvocationID;
+    uint rng = uint(gid.x) * 1973u ^ uint(gid.y) * 9277u ^ uint(gid.z) * 2663u ^ 0x9E3779B9u;
+    rng += uint(frames) * 1013904223u;
+
+    for (int bounce = 0; bounce < DEPTH; bounce++) {
+        Hit hit = traverseBVH(rayOri, rayDir);
+        if (hit.t == MAXILON) break;
+
+        vec3 N = faceforward(hit.N, rayDir, hit.N);
+
+        if (hit.mat.emission > 0.0) {
+            collectedLight += hit.mat.color * hit.mat.emission;
+            break;
+        }
+
+        if (hit.mat.reflectivity > 0.0) {
+            rayDir = addJitter(reflect(rayDir, N), rng);
+            rayOri = hit.Q + N * MINSILON;
+            continue;
+        }
+
+        if (hit.mat.translucency > 0.0) {
+            bool entering = dot(N, rayDir) < 0.0;
+            vec3 Ntrans = entering ? N : -N;
+            float eta = entering ? (1.0 / hit.mat.refractiveIndex) : hit.mat.refractiveIndex;
+            vec3 rd = refract(normalize(rayDir), Ntrans, eta);
+            if (length(rd) > 0.0) {
+                rayDir = addJitter(normalize(rd), rng);
+                vec3 offset = entering ? (-Ntrans * MINSILON) : (Ntrans * MINSILON);
+                rayOri = hit.Q + offset;
+                continue;
+            } else {
+                rayDir = addJitter(reflect(rayDir, N), rng);
+                rayOri = hit.Q + N * MINSILON;
+                continue;
+            }
+        }
+    }
+
+    if (frames == 0) {
+        return vec4(collectedLight, 1.0);
+    } else {
+        vec3 accumColor = prevColor * float(frames) + collectedLight;
+        accumColor /= float(frames + 1);
+        return vec4(accumColor, 1.0);
+    }
 }
 
 void main() {
@@ -232,7 +310,7 @@ void main() {
     uv.x *= aspect;
     vec3 rayDir = normalize(camForward + uv.x * tan(fov / 2.0) * normalize(cross(camForward, camUp)) + uv.y * tan(fov / 2.0) * camUp);
     int d = int(floor(distance(vec2(pixel), mousePos))); //TODO: Use texture to get distance and sampling info
-    vec4 color = getColor(camPos, rayDir);
+    vec4 color = getColorRay(camPos, rayDir);
     if (d < MAX_RAY_DISTANCE) {
         int ray_density = int((MAX_RAY_DISTANCE - d) / MAX_RAY_DENSITY); //TODO: Handle this better
         ray_density = min(ray_density, 5);
@@ -242,13 +320,15 @@ void main() {
                 vec2 offset = vec2(float(x), float(y)) * 0.001;
                 vec2 offsetUV = uv + offset;
                 vec3 offsetRayDir = normalize(camForward + offsetUV.x * tan(fov / 2.0) * normalize(cross(camForward, camUp)) + offsetUV.y * tan(fov / 2.0) * camUp);
-                color += getColor(camPos, offsetRayDir);
+                color += getColorRay(camPos, offsetRayDir);
             }
         }
         float totalRays = float((2 * ray_density + 1) * (2 * ray_density + 1));
         color /= totalRays;
     }
-
-
     imageStore(imgOutput, pixel, color);
+
+    //vec4 prevColor = imageLoad(imgOutput, pixel);
+    //vec4 color = getColorPath(camPos, rayDir, prevColor.rgb, time);
+    //imageStore(imgOutput, pixel, color);
 }

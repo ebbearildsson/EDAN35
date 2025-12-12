@@ -19,8 +19,6 @@
 using namespace glm;
 using namespace std;
 
-#define DEBUG 0
-
 int WIDTH = Config::width;
 int HEIGHT = Config::height;
 
@@ -46,6 +44,7 @@ void generate_scene(vector<Type>& indices, int& ind) {
 
     const float s = 5.0f;
     const float ts = 1.0f;
+    srand(69);
     for (int i = 0; i < Config::Num; i++) {
         Tri tri;
         vec3 j0 = vec3(rnd(-s, s), rnd(-s, s), rnd(-s, s));
@@ -60,27 +59,12 @@ void generate_scene(vector<Type>& indices, int& ind) {
         triangles.push_back(tri);
         indices.push_back({ind, 0});
         ind++;
-        #if (DEBUG == 1)
-        cout << "Triangle " << i << ": \n";
-        cout << "  v0: (" << tri.v0.x << ", " << tri.v0.y << ", " << tri.v0.z << ")\n";
-        cout << "  v1: (" << tri.v1.x << ", " << tri.v1.y << ", " << tri.v1.z << ")\n";
-        cout << "  v2: (" << tri.v2.x << ", " << tri.v2.y << ", " << tri.v2.z << ")\n"; 
-        #endif
-    }
-
-    for (int i = 0; i < Config::Num; i++) {
         Sph sph;
         sph.center = vec3(rnd(-s, s), rnd(-s, s), rnd(-s, s));
         sph.radius = rnd(0.1f, 0.8f);
         sph.materialIdx = 1;
         spheres.push_back(sph);
         indices.push_back({i, 1});
-
-        #if (DEBUG == 1)
-        cout << "Sphere " << i << ": \n";
-        cout << "  center: (" << sph.center.x << ", " << sph.center.y << ", " << sph.center.z << ")\n";
-        cout << "  radius: " << sph.radius << "\n";
-        #endif
     }
 }
 
@@ -109,14 +93,14 @@ void init(GLuint triSSBO, GLuint sphSSBO, GLuint bvhSSBO) {
         gpuSphs.push_back(gsph);
     }
 
-    cout << "Memory Usage:\n";
-    cout << " - Triangle size: " << (gpuTris.size() * sizeof(GPUTri)) / 1000000.0 << " MB" << "\n";
-    cout << " - Sphere size: " << (gpuSphs.size() * sizeof(GPUSph)) / 1000000.0 << " MB" << "\n";
-    cout << " - BVH size: " << (nodes.size() * sizeof(Node)) / 1000000.0 << " MB" << "\n";
-    cout << "Total Amounts:\n";
-    cout << " - triangles: " << triangles.size() << "\n";
-    cout << " - spheres: " << spheres.size() << "\n";
-    cout << " - BVH nodes: " << nodes.size() << "\n";
+    cout << "Memory Usage:\n"
+         << " - Triangle size: " << (gpuTris.size() * sizeof(GPUTri)) / 1000000.0 << " MB" << "\n"
+         << " - Sphere size: " << (gpuSphs.size() * sizeof(GPUSph)) / 1000000.0 << " MB" << "\n"
+         << " - BVH size: " << (nodes.size() * sizeof(Node)) / 1000000.0 << " MB" << "\n"
+         << "Total Amounts:\n"
+         << " - triangles: " << triangles.size() << "\n"
+         << " - spheres: " << spheres.size() << "\n"
+         << " - BVH nodes: " << nodes.size() << "\n";
 
     createAndFillSSBO<GPUTri>(triSSBO, 0, gpuTris);
     createAndFillSSBO<GPUSph>(sphSSBO, 1, gpuSphs);
@@ -140,6 +124,10 @@ int main() {
     }
     glfwSwapInterval(0);
 
+    cout << "GL_VENDOR:   " << glGetString(GL_VENDOR)   << "\n";
+    cout << "GL_RENDERER: " << glGetString(GL_RENDERER) << "\n";
+    cout << "GL_VERSION:  " << glGetString(GL_VERSION)  << "\n";
+
     GLuint tex;
     glGenTextures(1, &tex);
     glBindTexture(GL_TEXTURE_2D, tex);
@@ -148,22 +136,15 @@ int main() {
 
     GLuint computeProgram = createProgram("../shaders/trace.glsl");
 
-    float quadVertices[] = {
-        -1.0f, -1.0f,  0.0f, 0.0f,
-         1.0f, -1.0f,  1.0f, 0.0f,
-        -1.0f,  1.0f,  0.0f, 1.0f,
-         1.0f,  1.0f,  1.0f, 1.0f
-    };
+    float triVertices[] = { -1.0f, -1.0f,  3.0f, -1.0f, -1.0f,  3.0f };
     GLuint quadVAO, quadVBO;
     glGenVertexArrays(1, &quadVAO);
     glGenBuffers(1, &quadVBO);
     glBindVertexArray(quadVAO);
     glBindBuffer(GL_ARRAY_BUFFER, quadVBO);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(quadVertices), quadVertices, GL_STATIC_DRAW);
-    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(triVertices), triVertices, GL_STATIC_DRAW);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
     glEnableVertexAttribArray(0);
-    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float)));
-    glEnableVertexAttribArray(1);
 
     GLuint quadProgram = createQuadProgram("../shaders/quad.vert", "../shaders/quad.frag");
 
@@ -194,8 +175,8 @@ int main() {
 
     Material translucentBlue;
     translucentBlue.color = vec4(0.0f, 0.0f, 1.0f, 1.0f);
-    translucentBlue.reflectivity = 0.0f;
-    translucentBlue.translucency = 0.2f;
+    translucentBlue.reflectivity = 0.2f;
+    translucentBlue.translucency = 0.6f;
     translucentBlue.emission = 0.0f;
     translucentBlue.refractiveIndex = 1.5f;
     materials.push_back(translucentBlue);
@@ -208,10 +189,19 @@ int main() {
     emissiveGreen.refractiveIndex = 1.0f;
     materials.push_back(emissiveGreen);
 
+    Material emissivePurple;
+    emissivePurple.color = vec4(0.5f, 0.0f, 0.5f, 1.0f);
+    emissivePurple.reflectivity = 0.0f;
+    emissivePurple.translucency = 0.0f;
+    emissivePurple.emission = 1.0f;
+    emissivePurple.refractiveIndex = 1.0f;
+    materials.push_back(emissivePurple);
+
     materialMap["Khaki"] = 0;
     materialMap["BloodyRed"] = 1;
     materialMap["DarkGreen"] = 2;
     materialMap["Light"] = 3;
+    materialMap["Purple"] = 4;
 
     GLuint triSSBO, sphSSBO, bvhSSBO, materialSSBO;
     createAndFillSSBO<Material>(materialSSBO, 3, materials);
@@ -219,48 +209,42 @@ int main() {
     float initialTime = glfwGetTime();
     init(triSSBO, sphSSBO, bvhSSBO);
     cout << "BVH build time: " << (glfwGetTime() - initialTime) << " seconds\n";
-
-    #if (DEBUG == 1)
-    for (Node& n : nodes) {
-        string type = (n.type == 0) ? "⚠️" : (n.type == 1) ? "⭕" : "🌲";
-        cout << "Node " << n.ownIdx << ": Index=" << n.idx << ", type=" << type << ", left=" << n.left << ", right=" << n.right << "\n";
-        cout << "  Min: (" << n.min.x << ", " << n.min.y << ", " << n.min.z << ")\n";
-        cout << "  Max: (" << n.max.x << ", " << n.max.y << ", " << n.max.z << ")\n";
-        cout << "  Extent: (" << (n.max.x - n.min.x) << ", " << (n.max.y - n.min.y) << ", " << (n.max.z - n.min.z) << ")\n";
-    }
-    #endif
-
+    
     int nbFrames = 0;
+    int totalFrames = 0;
     double lastTime = glfwGetTime();
-    double lastFrame = 0.0f;
+    double currentTime = lastTime;
+    GLuint timeUBO;
+    createAndFillUBO<int>(timeUBO, 3, totalFrames);
+
+    double lastFrameTime = 0.0f;
     int width, height;
+    const int dispatchSize = 8;
+    const GLuint gx = (WIDTH + dispatchSize - 1) / dispatchSize;
+    const GLuint gy = (HEIGHT + dispatchSize - 1) / dispatchSize;
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
-        
         glUseProgram(computeProgram);
-        glDispatchCompute((GLuint)ceil(WIDTH / 8.0f), (GLuint)ceil(HEIGHT / 8.0f), 1);
+        glDispatchCompute(gx, gy, 1);
         glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
 
         glClear(GL_COLOR_BUFFER_BIT);
         glUseProgram(quadProgram);
         glBindTexture(GL_TEXTURE_2D, tex);
         glBindVertexArray(quadVAO);
-        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+        glDrawArrays(GL_TRIANGLES, 0, 3);
 
         nbFrames++;
-        double currentTime = glfwGetTime();
-        double deltaTime = currentTime - lastFrame;
-        lastFrame = currentTime;
+        totalFrames++;
+        currentTime = glfwGetTime();
+        updateUBO<int>(timeUBO, totalFrames);
 
-        glfwGetFramebufferSize(window, &width, &height);
-        if (width != WIDTH || height != HEIGHT || processInput(window, &cam, deltaTime)) {
-            if (width != WIDTH || height != HEIGHT) {
-                WIDTH = width;
-                HEIGHT = height;
-                glViewport(0, 0, width, height);
-                cam.aspect = float(WIDTH) / float(HEIGHT);
-            }
+        double deltaTime = currentTime - lastFrameTime;
+        lastFrameTime = currentTime;
+
+        if (processInput(window, &cam, deltaTime)) {
             updateUBO<Camera>(cameraUBO, cam);
+            totalFrames = 0;
         }
 
         double xpos, ypos;
@@ -278,7 +262,7 @@ int main() {
             title << "Raytracer - " << fps << " FPS (" << frameTimeMs << " ms/frame)";
             glfwSetWindowTitle(window, title.str().c_str());
 
-            nbFrames = 0;
+            nbFrames = 1;
             lastTime = currentTime;
         }   
         glfwSwapBuffers(window);
