@@ -4,7 +4,7 @@ const int DEPTH = 2;
 const float EPSILON = 1e-6;
 const float MINSILON = 1e-3;
 const float MAXILON = 1e6;
-const int MAX_STACK_SIZE = 128;
+const int MAX_STACK_SIZE = 32;
 const float MAX_RAY_DISTANCE = 200.0;
 const float MAX_RAY_DENSITY = 100.0;
 
@@ -111,17 +111,17 @@ float findSphereIntersection(vec3 rayOri, vec3 rayDir, int i) {
     return MAXILON;
 }
 
-bool intersectAABB(vec3 rayOri, vec3 rayDir, vec3 minBound, vec3 maxBound) {
-    vec3 tlow = (minBound - rayOri) / rayDir;
+float intersectAABB(vec3 rayOri, vec3 rayDir, vec3 minBound, vec3 maxBound) {
+    vec3 tlow = (minBound - rayOri) / rayDir; //TODO: Precompute inverse of ray direction
     vec3 thigh = (maxBound - rayOri) / rayDir;
     vec3 tmin = min(tlow, thigh);
     vec3 tmax = max(tlow, thigh);
     float tclose = max(max(tmin.x, tmin.y), tmin.z);
     float tfar = min(min(tmax.x, tmax.y), tmax.z);
-    return tfar >= tclose && tfar >= 0.0;
+    bool hit = tfar >= tclose && tfar >= 0.0;
+    return hit ? tclose : MAXILON;
 }
 
-//TODO: Add more primitive types
 float intersect(vec3 rayOri, vec3 rayDir, Node n) {
     if (n.type == 0) {
         return findTriangleIntersection(rayOri, rayDir, n.idx);
@@ -131,7 +131,6 @@ float intersect(vec3 rayOri, vec3 rayDir, Node n) {
     return MAXILON;
 }
 
-//TODO: Add more primitive types
 vec3 getNormal(vec3 point, Node node) {
     if (node.type == 0) {
         Triangle tri = triangles[node.idx];
@@ -145,24 +144,50 @@ vec3 getNormal(vec3 point, Node node) {
 
 Hit traverseBVH(vec3 rayOri, vec3 rayDir) {
     float closestT = MAXILON;
+    float closestB = MAXILON;
     int closestN = -1;
-    int stack[MAX_STACK_SIZE];
-    int stackPtr = 0;
-    stack[stackPtr++] = 0;
-    while (stackPtr > 0) {
-        int nodeIdx = stack[--stackPtr];
-        Node node = nodes[nodeIdx];
 
-        if (!intersectAABB(rayOri, rayDir, node.min, node.max)) continue;
+    struct Child {
+        int idx;
+        float t;
+    };
+
+    Child stack[MAX_STACK_SIZE];
+    int stackPtr = 0;
+    stack[stackPtr++] = Child(0, 0.0);
+
+    while (stackPtr > 0) {
+        Child child = stack[--stackPtr];
+        Node node = nodes[child.idx];
+
+        if (child.t >= closestT) continue;
+
         if (node.idx >= 0) {
             float t = intersect(rayOri, rayDir, node);
             if (t > 0.0 && t < closestT) {
                 closestT = t;
-                closestN = nodeIdx;
+                closestN = child.idx;
             }
         } else {
-            if (node.rightIdx >= 0) stack[stackPtr++] = node.rightIdx;
-            if (node.leftIdx >= 0)  stack[stackPtr++] = node.leftIdx;
+            if (node.leftIdx >= 0 && node.rightIdx >= 0) {
+                float leftT = intersectAABB(rayOri, rayDir, nodes[node.leftIdx].min, nodes[node.leftIdx].max);
+                float rightT = intersectAABB(rayOri, rayDir, nodes[node.rightIdx].min, nodes[node.rightIdx].max);
+                if (leftT < rightT) {
+                    if (node.rightIdx >= 0) stack[stackPtr++] = Child(node.rightIdx, rightT);
+                    if (node.leftIdx >= 0) stack[stackPtr++] = Child(node.leftIdx, leftT);
+                } else {
+                    if (node.leftIdx >= 0) stack[stackPtr++] = Child(node.leftIdx, leftT);
+                    if (node.rightIdx >= 0) stack[stackPtr++] = Child(node.rightIdx, rightT);
+                }
+            } 
+            else if (node.leftIdx >= 0) {
+                float leftT = intersectAABB(rayOri, rayDir, nodes[node.leftIdx].min, nodes[node.leftIdx].max);
+                stack[stackPtr++] = Child(node.leftIdx, leftT);
+            } 
+            else if (node.rightIdx >= 0) {
+                float rightT = intersectAABB(rayOri, rayDir, nodes[node.rightIdx].min, nodes[node.rightIdx].max);
+                stack[stackPtr++] = Child(node.rightIdx, rightT);
+            }
         }
     }
 
@@ -210,14 +235,11 @@ vec4 getColorRay(vec3 rayOri, vec3 rayDir) {
                 vec3 offset = entering ? (-Ntrans * MINSILON) : (Ntrans * MINSILON);
                 stack[stackPtr++] = Ray(hit.Q + offset, normalize(rd), ray.depth + 1);
             }
-        } else { // if it isnt translucent create shadow ray
+        } else {
             vec3 lightDir = normalize(lightPos - hit.Q);
             Hit shadowHit = traverseBVH(hit.Q + N * MINSILON, lightDir);
             float lightDist = length(lightPos - hit.Q);
-            if (shadowHit.t < lightDist) {
-                continue;
-            }
-
+            if (shadowHit.t < lightDist) continue;
         }
 
         if (hit.mat.reflectivity > 0.0) {
