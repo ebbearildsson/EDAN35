@@ -11,7 +11,7 @@ struct Config {
     const static int width = 600;
     const static int height = 600;
     const static int Num = 10;
-    const static int maxBVHDepth = 16;
+    const static int maxBVHDepth = 32;
     const static int minVolumeAmount = 2;
 };
 
