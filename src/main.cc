@@ -22,24 +22,24 @@ using namespace std;
 int WIDTH = Config::width;
 int HEIGHT = Config::height;
 
-void generate_scene(vector<Type>& indices, int& ind) {
+void generate_scene() {
     vector<Tri> suz = createObjectFromFile("../models/suzanne.obj", materialMap);
     rotate_object_x(suz, radians(-30.0f));
     rotate_object_y(suz, radians(10.0f));
     scale_object(suz, 1.0f);
     translate_object(suz, vec3(-1.75f, 1.8f, 0.0f));
-    add_object(suz, indices, ind);
+    add_object(suz);
 
     vector<Tri> box = createObjectFromFile("../models/cornell-box.obj", materialMap);
     scale_object(box, 2.0f);
     translate_object(box, vec3(0.4f, -5.0f, 8.0f));
-    add_object(box, indices, ind);
+    add_object(box);
 
     vector<Tri> spot = createObjectFromFile("../models/spot.obj", materialMap);
     rotate_object_y(spot, radians(130.0f));
     scale_object(spot, 1.0f);
     translate_object(spot, vec3(1.2f, -1.3f, 4.2f));
-    add_object(spot, indices, ind);
+    add_object(spot);
 
 
     const float s = 5.0f;
@@ -53,29 +53,27 @@ void generate_scene(vector<Type>& indices, int& ind) {
         tri.v0 = vec3(j0);
         tri.v1 = vec3(j0 + j1);
         tri.v2 = vec3(j0 + j2);
+        tri.min = min(tri.v0, min(tri.v1, tri.v2));
+        tri.max = max(tri.v0, max(tri.v1, tri.v2));
         tri.c = (tri.v0 + tri.v1 + tri.v2) / 3.0f;
         tri.normal = normalize(cross(tri.v1 - tri.v0, tri.v2 - tri.v0));
         tri.materialIdx = 2;
         triangles.push_back(tri);
-        indices.push_back({ind, 0});
-        ind++;
+        triIndices.push_back(static_cast<int>(triangles.size() - 1));
         Sph sph;
         sph.center = vec3(rnd(-s, s), rnd(-s, s), rnd(-s, s));
         sph.radius = rnd(0.1f, 0.8f);
         sph.materialIdx = 1;
         spheres.push_back(sph);
-        indices.push_back({i, 1});
     }
 }
 
 void init(GLuint triSSBO, GLuint sphSSBO, GLuint bvhSSBO) {
-    vector<Type> allIndices;
-    int ind = 0;
-    generate_scene(allIndices, ind);
-    
-    buildNode(0, vec3(-10.0f), vec3(10.0f), allIndices);
-    tightenBounds(0); //? Probably not needed if bounds are calculated correctly during build
-    
+    generate_scene();
+    //buildNode(0, vec3(-10.0f), vec3(10.0f), triIndices);
+    //tightenBounds(0); //? Probably not needed if bounds are calculated correctly during build
+    buildBVH();
+
     vector<GPUTri> gpuTris;
     for (Tri& tri : triangles) {
         GPUTri gtri;
@@ -105,6 +103,7 @@ void init(GLuint triSSBO, GLuint sphSSBO, GLuint bvhSSBO) {
     createAndFillSSBO<GPUTri>(triSSBO, 0, gpuTris);
     createAndFillSSBO<GPUSph>(sphSSBO, 1, gpuSphs);
     createAndFillSSBO<Node>(bvhSSBO, 2, nodes);
+    createAndFillSSBO<int>(triSSBO, 4, triIndices);
 }
 
 int main() {

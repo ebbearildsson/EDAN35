@@ -1,6 +1,6 @@
 #version 430 core
 
-const int DEPTH = 2;
+const int DEPTH = 4;
 const float EPSILON = 1e-6;
 const float MINSILON = 1e-3;
 const float MAXILON = 1e6;
@@ -22,13 +22,12 @@ struct Sphere {
 
 struct Node { //TODO: compact this better
     vec3 min;
-    int idx;
     vec3 max;
-    int ownIdx;
-    int leftIdx;
-    int rightIdx;
-    int type;
-    int matIdx;
+    int left;
+    int right;
+    int start;
+    int count;
+    int mat;
 };
 
 struct Material {
@@ -73,6 +72,8 @@ layout (std430, binding = 1) buffer Spheres { Sphere spheres[]; };
 layout (std430, binding = 2) buffer BVH { Node nodes[]; };
 
 layout (std430, binding = 3) buffer Materials { Material materials[]; };
+
+layout (std430, binding = 4) buffer TriIndices { int triIndices[]; };
 
 float findTriangleIntersection(vec3 rayOrigin, vec3 rayDir, int i) {
     Triangle tri = triangles[i];
@@ -122,71 +123,49 @@ float intersectAABB(vec3 rayOri, vec3 rayDir, vec3 minBound, vec3 maxBound) {
     return hit ? tclose : MAXILON;
 }
 
-float intersect(vec3 rayOri, vec3 rayDir, Node n) {
-    if (n.type == 0) {
-        return findTriangleIntersection(rayOri, rayDir, n.idx);
-    } else if (n.type == 1) {
-        return findSphereIntersection(rayOri, rayDir, n.idx);
-    }
-    return MAXILON;
-}
-
-vec3 getNormal(vec3 point, Node node) {
-    if (node.type == 0) {
-        Triangle tri = triangles[node.idx];
-        return normalize(tri.n);
-    } else if (node.type == 1) {
-        Sphere sph = spheres[node.idx];
-        return normalize(point - sph.center);
-    }
-    return vec3(0.0);
-}
-
 Hit traverseBVH(vec3 rayOri, vec3 rayDir) {
     float closestT = MAXILON;
     float closestB = MAXILON;
     int closestN = -1;
+    int closestTri = -1;
 
-    struct Child {
-        int idx;
-        float t;
-    };
-
-    Child stack[MAX_STACK_SIZE];
+    int stack[MAX_STACK_SIZE];
     int stackPtr = 0;
-    stack[stackPtr++] = Child(0, 0.0);
+    stack[stackPtr++] = 0;
 
     while (stackPtr > 0) {
-        Child child = stack[--stackPtr];
-        Node node = nodes[child.idx];
+        int child = stack[--stackPtr];
+        Node node = nodes[child];
 
-        if (child.t >= closestT) continue;
+        float childT = intersectAABB(rayOri, rayDir, node.min, node.max);
+        if (childT >= closestT) continue;
 
-        if (node.idx >= 0) {
-            float t = intersect(rayOri, rayDir, node);
-            if (t > 0.0 && t < closestT) {
-                closestT = t;
-                closestN = child.idx;
+        if (node.left == -1 && node.right == -1) {
+            for (int i = node.start; i < node.start + node.count; i++) {
+                float t = findTriangleIntersection(rayOri, rayDir, triIndices[i]);
+                if (t > 0.0 && t < closestT) {
+                    closestT = t;
+                    closestTri = triIndices[i];
+                    closestN = child;
+                }
             }
         } else {
-            if (node.leftIdx >= 0 && node.rightIdx >= 0) {
-                float leftT = intersectAABB(rayOri, rayDir, nodes[node.leftIdx].min, nodes[node.leftIdx].max);
-                float rightT = intersectAABB(rayOri, rayDir, nodes[node.rightIdx].min, nodes[node.rightIdx].max);
+            if (node.left >= 0 && node.right >= 0) {
+                float leftT = intersectAABB(rayOri, rayDir, nodes[node.left].min, nodes[node.left].max);
+                float rightT = intersectAABB(rayOri, rayDir, nodes[node.right].min, nodes[node.right].max);
                 if (leftT < rightT) {
-                    if (node.rightIdx >= 0) stack[stackPtr++] = Child(node.rightIdx, rightT);
-                    if (node.leftIdx >= 0) stack[stackPtr++] = Child(node.leftIdx, leftT);
+                    if (node.right >= 0) stack[stackPtr++] = node.right;
+                    if (node.left >= 0) stack[stackPtr++] = node.left;
                 } else {
-                    if (node.leftIdx >= 0) stack[stackPtr++] = Child(node.leftIdx, leftT);
-                    if (node.rightIdx >= 0) stack[stackPtr++] = Child(node.rightIdx, rightT);
+                    if (node.left >= 0) stack[stackPtr++] = node.left;
+                    if (node.right >= 0) stack[stackPtr++] = node.right;
                 }
             } 
-            else if (node.leftIdx >= 0) {
-                float leftT = intersectAABB(rayOri, rayDir, nodes[node.leftIdx].min, nodes[node.leftIdx].max);
-                stack[stackPtr++] = Child(node.leftIdx, leftT);
+            else if (node.left >= 0) {
+                stack[stackPtr++] = node.left;
             } 
-            else if (node.rightIdx >= 0) {
-                float rightT = intersectAABB(rayOri, rayDir, nodes[node.rightIdx].min, nodes[node.rightIdx].max);
-                stack[stackPtr++] = Child(node.rightIdx, rightT);
+            else if (node.right >= 0) {
+                stack[stackPtr++] = node.right;
             }
         }
     }
@@ -200,10 +179,39 @@ Hit traverseBVH(vec3 rayOri, vec3 rayDir) {
     Hit hit;
     hit.t = closestT;
     hit.node = nodes[closestN];
-    hit.mat = materials[hit.node.matIdx];
+    hit.mat = materials[hit.node.mat];
     hit.Q = rayOri + hit.t * rayDir;
-    hit.N = getNormal(hit.Q, hit.node);
+    hit.N = triangles[closestTri].n;
     return hit;
+}
+
+Hit intersectSpheres(vec3 rayOri, vec3 rayDir) {
+    float closestT = MAXILON;
+    int closestIdx = -1;
+    for (int i = 0; i < spheres.length(); i++) {
+        float t = findSphereIntersection(rayOri, rayDir, i);
+        if (t < closestT) {
+            closestT = t;
+            closestIdx = i;
+        }
+    }
+    if (closestIdx == -1 || closestT == MAXILON) {
+        Hit noHit;
+        noHit.t = MAXILON;
+        return noHit;
+    }
+    Hit hit;
+    hit.t = closestT;
+    hit.mat = materials[1];
+    hit.Q = rayOri + hit.t * rayDir;
+    hit.N = normalize(hit.Q - spheres[closestIdx].center);
+    return hit;
+}
+
+Hit getHit(vec3 rayOri, vec3 rayDir) {
+    Hit sphHit = intersectSpheres(rayOri, rayDir);
+    Hit triHit = traverseBVH(rayOri, rayDir);
+    return (sphHit.t < triHit.t) ? sphHit : triHit;
 }
 
 vec4 getColorRay(vec3 rayOri, vec3 rayDir) {
@@ -211,17 +219,17 @@ vec4 getColorRay(vec3 rayOri, vec3 rayDir) {
     struct Ray {
         vec3 ori;
         vec3 dir;
-        int depth;
     };
 
+    int depth = 0;
     Ray stack[MAX_STACK_SIZE];
     int stackPtr = 0;
-    stack[stackPtr++] = Ray(rayOri, rayDir, 0);
+    stack[stackPtr++] = Ray(rayOri, rayDir);
     while (stackPtr > 0) {
         Ray ray = stack[--stackPtr];
-        if (ray.depth > DEPTH) continue;
+        if (depth > DEPTH) continue;
 
-        Hit hit = traverseBVH(ray.ori, ray.dir);
+        Hit hit = getHit(ray.ori, ray.dir);
         if (hit.t == MAXILON) continue;
 
         vec3 N = faceforward(hit.N, ray.dir, hit.N);
@@ -233,7 +241,8 @@ vec4 getColorRay(vec3 rayOri, vec3 rayDir) {
             vec3 rd = refract(normalize(ray.dir), Ntrans, eta);
             if (length(rd) > 0.0) {
                 vec3 offset = entering ? (-Ntrans * MINSILON) : (Ntrans * MINSILON);
-                stack[stackPtr++] = Ray(hit.Q + offset, normalize(rd), ray.depth + 1);
+                stack[stackPtr++] = Ray(hit.Q + offset, normalize(rd));
+                depth++;
             }
         } else {
             vec3 lightDir = normalize(lightPos - hit.Q);
@@ -243,7 +252,8 @@ vec4 getColorRay(vec3 rayOri, vec3 rayDir) {
         }
 
         if (hit.mat.reflectivity > 0.0) {
-            stack[stackPtr++] = Ray(hit.Q + N * MINSILON, normalize(reflect(ray.dir, N)), ray.depth + 1);
+            stack[stackPtr++] = Ray(hit.Q + N * MINSILON, normalize(reflect(ray.dir, N)));
+            depth++;
         }
 
         if (hit.mat.emission > 0.0) {

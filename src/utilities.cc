@@ -93,6 +93,8 @@ vector<Tri> createObjectFromFile(const string& path, std::unordered_map<string, 
             tri.v0 = vec3(temp_vertices[vIndex[0]]);
             tri.v1 = vec3(temp_vertices[vIndex[1]]);
             tri.v2 = vec3(temp_vertices[vIndex[2]]);
+            tri.max = max(tri.v0, max(tri.v1, tri.v2));
+            tri.min = min(tri.v0, min(tri.v1, tri.v2));
             tri.c = (tri.v0 + tri.v1 + tri.v2) / 3.0f;
             if (nIndex[0] != -1 && nIndex[1] != -1 && nIndex[2] != -1) {
                 vec3 n0 = temp_normals[nIndex[0]];
@@ -219,6 +221,8 @@ void translate_object(vector<Tri>& tris, vec3 translation) {
         tri.v0 += translation;
         tri.v1 += translation;
         tri.v2 += translation;
+        tri.max = max(tri.v0, max(tri.v1, tri.v2));
+        tri.min = min(tri.v0, min(tri.v1, tri.v2));
         tri.c = (tri.v0 + tri.v1 + tri.v2) / 3.0f;
     }
 }
@@ -229,6 +233,8 @@ void rotate_object_y(vector<Tri>& tris, float angle) {
         tri.v0 = vec3(rotation * vec4(tri.v0, 1.0f));
         tri.v1 = vec3(rotation * vec4(tri.v1, 1.0f));
         tri.v2 = vec3(rotation * vec4(tri.v2, 1.0f));
+        tri.max = max(tri.v0, max(tri.v1, tri.v2));
+        tri.min = min(tri.v0, min(tri.v1, tri.v2));
         tri.c = (tri.v0 + tri.v1 + tri.v2) / 3.0f;
         tri.normal = normalize(vec3(rotation * vec4(tri.normal, 0.0f)));
     }
@@ -240,6 +246,8 @@ void rotate_object_x(vector<Tri>& tris, float angle) {
         tri.v0 = vec3(rotation * vec4(tri.v0, 1.0f));
         tri.v1 = vec3(rotation * vec4(tri.v1, 1.0f));
         tri.v2 = vec3(rotation * vec4(tri.v2, 1.0f));
+        tri.max = max(tri.v0, max(tri.v1, tri.v2));
+        tri.min = min(tri.v0, min(tri.v1, tri.v2));
         tri.c = (tri.v0 + tri.v1 + tri.v2) / 3.0f;
         tri.normal = normalize(vec3(rotation * vec4(tri.normal, 0.0f)));
     }
@@ -251,6 +259,8 @@ void rotate_object_z(vector<Tri>& tris, float angle) {
         tri.v0 = vec3(rotation * vec4(tri.v0, 1.0f));
         tri.v1 = vec3(rotation * vec4(tri.v1, 1.0f));
         tri.v2 = vec3(rotation * vec4(tri.v2, 1.0f));
+        tri.max = max(tri.v0, max(tri.v1, tri.v2));
+        tri.min = min(tri.v0, min(tri.v1, tri.v2));
         tri.c = (tri.v0 + tri.v1 + tri.v2) / 3.0f;
         tri.normal = normalize(vec3(rotation * vec4(tri.normal, 0.0f)));
     }
@@ -261,16 +271,17 @@ void scale_object(vector<Tri>& tris, float scale) {
         tri.v0 *= scale;
         tri.v1 *= scale;
         tri.v2 *= scale;
+        tri.max = max(tri.v0, max(tri.v1, tri.v2));
+        tri.min = min(tri.v0, min(tri.v1, tri.v2));
         tri.c = (tri.v0 + tri.v1 + tri.v2) / 3.0f;
     }
 }
 
-void add_object(std::vector<Tri>& tris, std::vector<Type>& indices, int& ind, int materialIdx) {
+void add_object(std::vector<Tri>& tris, int materialIdx) {
     for (int i = 0; i < tris.size(); i++) {
         Tri tri = tris[i];
         if (materialIdx != -1) tri.materialIdx = materialIdx;
         triangles.push_back(tri);
-        indices.push_back({ind, 0});
-        ind++;
+        triIndices.push_back(static_cast<int>(triangles.size() - 1));
     }
 }
