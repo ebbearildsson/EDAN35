@@ -156,21 +156,13 @@ Hit traverseBVH(vec3 rayOri, vec3 rayDir, vec3 invRayDir) {
                 }
             }
         } else {
-            if (node.left >= 0 && node.right >= 0) {
-                float leftT = intersectAABB(rayOri, invRayDir, nodes[node.left].min, nodes[node.left].max);
-                float rightT = intersectAABB(rayOri, invRayDir, nodes[node.right].min, nodes[node.right].max);
-                if (leftT < rightT) {
-                    if (node.right >= 0) stack[stackPtr++] = node.right;
-                    if (node.left >= 0) stack[stackPtr++] = node.left;
-                } else {
-                    if (node.left >= 0) stack[stackPtr++] = node.left;
-                    if (node.right >= 0) stack[stackPtr++] = node.right;
-                }
-            } 
-            else if (node.left >= 0) {
+            float leftT = intersectAABB(rayOri, invRayDir, nodes[node.left].min, nodes[node.left].max);
+            float rightT = intersectAABB(rayOri, invRayDir, nodes[node.right].min, nodes[node.right].max);
+            if (leftT < rightT) {
+                stack[stackPtr++] = node.right;
                 stack[stackPtr++] = node.left;
-            } 
-            else if (node.right >= 0) {
+            } else {
+                stack[stackPtr++] = node.left;
                 stack[stackPtr++] = node.right;
             }
         }
