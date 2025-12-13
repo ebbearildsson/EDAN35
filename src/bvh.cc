@@ -155,8 +155,7 @@ void subdivide(int idx, int depth = 0) {
     leftNode.left = -1;
     leftNode.right = -1;
     nodes.push_back(leftNode);
-    int leftChildIdx = nodes.size() - 1;
-    node.left = leftChildIdx;
+    int leftChildIdx = static_cast<int>(nodes.size() - 1);
     shrinkBounds( leftChildIdx );
     
     Node rightNode;
@@ -166,9 +165,11 @@ void subdivide(int idx, int depth = 0) {
     rightNode.left = -1;
     rightNode.right = -1;
     nodes.push_back(rightNode);
-    int rightChildIdx = nodes.size() - 1;
-    node.right = rightChildIdx;
+    int rightChildIdx = static_cast<int>(nodes.size() - 1);
     shrinkBounds( rightChildIdx );
+
+    nodes[idx].left = leftChildIdx;
+    nodes[idx].right = rightChildIdx;
 
     subdivide( leftChildIdx, depth + 1 );
     subdivide( rightChildIdx, depth + 1 );

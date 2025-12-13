@@ -79,12 +79,13 @@ struct OldNode { //TODO: compact this
 
 struct Node {
     vec3 min;
-    vec3 max;
     int left;
+    vec3 max;
     int right;
     int start;
     int count;
     int mat;
+    float _pad0;
 };
 
 struct Type {
@@ -93,7 +94,7 @@ struct Type {
 };
 
 static_assert(sizeof(GPUTri) == 64, "GPUTri size incorrect");
-//static_assert(sizeof(Node) == 48, "Node size incorrect");
+static_assert(sizeof(Node) == 48, "Node size incorrect");
 static_assert(sizeof(GPUSph) == 16, "GPUSph size incorrect");
 
 extern std::vector<Node> nodes;

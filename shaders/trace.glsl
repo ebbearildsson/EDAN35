@@ -4,7 +4,7 @@ const int DEPTH = 4;
 const float EPSILON = 1e-6;
 const float MINSILON = 1e-3;
 const float MAXILON = 1e6;
-const int MAX_STACK_SIZE = 32;
+const int MAX_STACK_SIZE = 64;
 const float MAX_RAY_DISTANCE = 200.0;
 const float MAX_RAY_DENSITY = 100.0;
 
@@ -22,12 +22,13 @@ struct Sphere {
 
 struct Node { //TODO: compact this better
     vec3 min;
-    vec3 max;
     int left;
+    vec3 max;
     int right;
     int start;
     int count;
     int mat;
+    float _pad0;
 };
 
 struct Material {
