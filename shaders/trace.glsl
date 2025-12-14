@@ -4,16 +4,20 @@ const int DEPTH = 4;
 const float EPSILON = 1e-6;
 const float MINSILON = 1e-3;
 const float MAXILON = 1e6;
-const int MAX_STACK_SIZE = 64;
+const int MAX_STACK_SIZE = 32;
 const float MAX_RAY_DISTANCE = 200.0;
 const float MAX_RAY_DENSITY = 100.0;
 
-struct Triangle { //TODO: compact this better
-    vec3 v0; float _pad0;
-    vec3 v1; float _pad1;
-    vec3 v2; float _pad2;
-    vec3 n;  float _pad3;
+struct Triangle {
+    vec4 d0; // v0.x, v0.y, v0.z, e1.x
+    vec4 d1; // e1.y, e1.z, e2.x, e2.y
+    vec4 d2; // e2.z, normal.x, normal.y, normal.z
 };
+
+vec3 e1(Triangle tri) { return vec3(tri.d0.w, tri.d1.x, tri.d1.y); };
+vec3 e2(Triangle tri) { return vec3(tri.d1.z, tri.d1.w, tri.d2.x); };
+vec3 v0(Triangle tri) { return vec3(tri.d0.x, tri.d0.y, tri.d0.z); };
+vec3 n(Triangle  tri) { return vec3(tri.d2.y, tri.d2.z, tri.d2.w); };
 
 struct Sphere {
     vec3 center;
@@ -80,19 +84,17 @@ layout (std430, binding = 4) buffer TriIndices { int triIndices[]; };
 
 float findTriangleIntersection(vec3 rayOrigin, vec3 rayDir, int i) {
     Triangle tri = triangles[i];
-    vec3 edge1 = tri.v1 - tri.v0;
-    vec3 edge2 = tri.v2 - tri.v0;
-    vec3 h = cross(rayDir, edge2);
-    float a = dot(edge1, h);
+    vec3 h = cross(rayDir, e2(tri));
+    float a = dot(e1(tri), h);
     if (abs(a) < EPSILON) return MAXILON;
     float f = 1.0 / a;
-    vec3 s = rayOrigin - tri.v0;
+    vec3 s = rayOrigin - v0(tri);
     float u = f * dot(s, h);
     if (u < 0.0 || u > 1.0) return MAXILON;
-    vec3 q = cross(s, edge1);
+    vec3 q = cross(s, e1(tri));
     float v = f * dot(rayDir, q);
     if (v < 0.0 || u + v > 1.0) return MAXILON;
-    float t = f * dot(edge2, q);
+    float t = f * dot(e2(tri), q);
     return (t > EPSILON) ? t : MAXILON;
 }
 
@@ -106,17 +108,18 @@ float findSphereIntersection(vec3 rayOri, vec3 rayDir, int i) {
     if (d < 0.0) return MAXILON;
 
     float sqrtD = sqrt(d);
-    float t0 = (-b - sqrtD) / (2.0 * a);
+    float inv = 1.0 / (2.0 * a);
+    float t0 = (-b - sqrtD) * inv;
     if (t0 > EPSILON) return t0;
 
-    float t1 = (-b + sqrtD) / (2.0 * a);
+    float t1 = (-b + sqrtD) * inv;
     if (t1 > EPSILON) return t1;
 
     return MAXILON;
 }
 
 float intersectAABB(vec3 rayOri, vec3 invDir, vec3 minBound, vec3 maxBound) {
-    vec3 tlow = (minBound - rayOri) * invDir; //TODO: Precompute inverse of ray direction
+    vec3 tlow = (minBound - rayOri) * invDir;
     vec3 thigh = (maxBound - rayOri) * invDir;
     vec3 tmin = min(tlow, thigh);
     vec3 tmax = max(tlow, thigh);
@@ -181,7 +184,7 @@ Hit traverseBVH(vec3 rayOri, vec3 rayDir, vec3 invRayDir) {
     hit.node = nodes[closestN];
     hit.mat = materials[hit.node.mat];
     hit.Q = rayOri + hit.t * rayDir;
-    hit.N = triangles[closestTri].n;
+    hit.N = n(triangles[closestTri]);
     return hit;
 }
 

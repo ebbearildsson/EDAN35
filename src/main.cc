@@ -41,7 +41,6 @@ void generate_scene() {
     translate_object(spot, vec3(1.2f, -1.3f, 4.2f));
     add_object(spot);
 
-
     const float s = 5.0f;
     const float ts = 1.0f;
     srand(69);
@@ -70,17 +69,17 @@ void generate_scene() {
 
 void init(GLuint triSSBO, GLuint sphSSBO, GLuint bvhSSBO) {
     generate_scene();
-    //buildNode(0, vec3(-10.0f), vec3(10.0f), triIndices);
-    //tightenBounds(0); //? Probably not needed if bounds are calculated correctly during build
     buildBVH();
 
     vector<GPUTri> gpuTris;
     for (Tri& tri : triangles) {
+        vec3 e1 = tri.v1 - tri.v0;
+        vec3 e2 = tri.v2 - tri.v0;
+
         GPUTri gtri;
-        gtri.v0 = vec4(tri.v0, 1.0f);
-        gtri.v1 = vec4(tri.v1, 1.0f);
-        gtri.v2 = vec4(tri.v2, 1.0f);
-        gtri.n = vec4(tri.normal, 0.0f);
+        gtri.data0 = vec4(tri.v0, e1.x);
+        gtri.data1 = vec4(e1.y, e1.z, e2.x, e2.y);
+        gtri.data2 = vec4(e2.z, tri.normal);
         gpuTris.push_back(gtri);
     }
     vector<GPUSph> gpuSphs;
@@ -155,52 +154,6 @@ int main() {
     vec2 mousePos = vec2(0.0f);
     GLuint mouseUBO;
     createAndFillUBO<vec2>(mouseUBO, 2, mousePos);
-
-    Material defaultMat;
-    defaultMat.color = vec4(1.0f, 1.0f, 1.0f, 1.0f);
-    defaultMat.reflectivity = 0.0f;
-    defaultMat.translucency = 0.0f;
-    defaultMat.emission = 0.0f;
-    defaultMat.refractiveIndex = 1.0f;
-    materials.push_back(defaultMat);
-
-    Material reflectiveRed;
-    reflectiveRed.color = vec4(1.0f, 0.0f, 0.0f, 1.0f);
-    reflectiveRed.reflectivity = 0.6f;
-    reflectiveRed.translucency = 0.0f;
-    reflectiveRed.emission = 0.0f;
-    reflectiveRed.refractiveIndex = 1.0f;
-    materials.push_back(reflectiveRed);
-
-    Material translucentBlue;
-    translucentBlue.color = vec4(0.0f, 0.0f, 1.0f, 1.0f);
-    translucentBlue.reflectivity = 0.2f;
-    translucentBlue.translucency = 0.6f;
-    translucentBlue.emission = 0.0f;
-    translucentBlue.refractiveIndex = 1.5f;
-    materials.push_back(translucentBlue);
-
-    Material emissiveGreen;
-    emissiveGreen.color = vec4(0.0f, 1.0f, 0.0f, 1.0f);
-    emissiveGreen.reflectivity = 0.0f;
-    emissiveGreen.translucency = 0.0f;
-    emissiveGreen.emission = 0.5f;
-    emissiveGreen.refractiveIndex = 1.0f;
-    materials.push_back(emissiveGreen);
-
-    Material emissivePurple;
-    emissivePurple.color = vec4(0.5f, 0.0f, 0.5f, 1.0f);
-    emissivePurple.reflectivity = 0.0f;
-    emissivePurple.translucency = 0.0f;
-    emissivePurple.emission = 1.0f;
-    emissivePurple.refractiveIndex = 1.0f;
-    materials.push_back(emissivePurple);
-
-    materialMap["Khaki"] = 0;
-    materialMap["BloodyRed"] = 1;
-    materialMap["DarkGreen"] = 2;
-    materialMap["Light"] = 3;
-    materialMap["Purple"] = 4;
 
     GLuint triSSBO, sphSSBO, bvhSSBO, materialSSBO;
     createAndFillSSBO<Material>(materialSSBO, 3, materials);

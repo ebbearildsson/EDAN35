@@ -47,10 +47,9 @@ struct Light {
 };
 
 struct GPUTri { //TODO: compact this
-    vec4 v0;
-    vec4 v1;
-    vec4 v2;
-    vec4 n;
+    vec4 data0; // v0.x, v0.y, v0.z, e1.x
+    vec4 data1; // e1.y, e1.z, e2.x, e2.y
+    vec4 data2; // e2.z, normal.x, normal.y, normal.z
 };
 
 struct GPUSph {
@@ -93,7 +92,7 @@ struct Type {
     int type; // 0 = triangle, 1 = sphere
 };
 
-static_assert(sizeof(GPUTri) == 64, "GPUTri size incorrect");
+static_assert(sizeof(GPUTri) == 48, "GPUTri size incorrect");
 static_assert(sizeof(Node) == 48, "Node size incorrect");
 static_assert(sizeof(GPUSph) == 16, "GPUSph size incorrect");
 
