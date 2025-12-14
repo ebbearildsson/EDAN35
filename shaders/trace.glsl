@@ -251,9 +251,10 @@ vec4 getColorRay(vec3 rayOri, vec3 rayDir) {
                 stack[stackPtr++] = Ray(hit.Q + offset, rd, 1.0 / rd);
                 depth++;
             }
-        } else {
+        } 
+        else {
             vec3 lightDir = normalize(lightPos - hit.Q);
-            Hit shadowHit = traverseBVH(hit.Q + N * MINSILON, lightDir, 1 / lightDir);
+            Hit shadowHit = getHit(hit.Q + N * MINSILON, lightDir);
             float lightDist = length(lightPos - hit.Q);
             if (shadowHit.t < lightDist) break;
         }
@@ -295,12 +296,14 @@ vec3 addJitter(vec3 dir, inout uint rng) {
 vec4 getColorPath(vec3 rayOri, vec3 rayDir, vec3 prevColor, int frames) {
     vec3 collectedLight = vec3(0.0);
 
+    if (frames == 0) return vec4(0.0);
+
     uvec3 gid = gl_GlobalInvocationID;
     uint rng = uint(gid.x) * 1973u ^ uint(gid.y) * 9277u ^ uint(gid.z) * 2663u ^ 0x9E3779B9u;
     rng += uint(frames) * 1013904223u;
 
     for (int bounce = 0; bounce < DEPTH; bounce++) {
-        Hit hit = traverseBVH(rayOri, rayDir, 1.0 / rayDir);
+        Hit hit = getHit(rayOri, rayDir);
         if (hit.t == MAXILON) break;
 
         vec3 N = faceforward(hit.N, rayDir, hit.N);
@@ -334,13 +337,9 @@ vec4 getColorPath(vec3 rayOri, vec3 rayDir, vec3 prevColor, int frames) {
         }
     }
 
-    if (frames == 0) {
-        return vec4(collectedLight, 1.0);
-    } else {
-        vec3 accumColor = prevColor * float(frames) + collectedLight;
-        accumColor /= float(frames + 1);
-        return vec4(accumColor, 1.0);
-    }
+    vec3 accumColor = prevColor * float(frames) + collectedLight;
+    accumColor /= float(frames + 1);
+    return vec4(accumColor, 1.0);
 }
 
 void main() {
