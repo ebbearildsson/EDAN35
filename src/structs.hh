@@ -64,6 +64,13 @@ struct Material { //TODO: compact this
     float refractiveIndex;
 };
 
+struct TLAS {
+    vec3 min;
+    vec3 max;
+    int idxOrLeft;
+    int type; // 0 = bvh, 1 = sphere
+};
+
 struct Node {
     vec3 min;
     vec3 max;
@@ -94,6 +101,7 @@ static_assert(sizeof(GPUSph) == 16, "GPUSph size incorrect");
 static_assert(sizeof(GPUNode) == 32, "GPUNode size incorrect");
 
 
+extern std::vector<TLAS> tlas;
 extern std::vector<Node> nodes;
 extern std::vector<Sph> spheres;
 extern std::vector<Mesh> meshes;

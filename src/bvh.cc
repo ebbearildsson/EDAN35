@@ -131,3 +131,29 @@ void buildBVH(Mesh& mesh) {
 void buildBVHs(std::vector<Mesh>& meshes) {
     for (Mesh& mesh : meshes) buildBVH(mesh);
 }
+
+TLAS findBestMatch(TLAS bachelor, const std::vector<TLAS>& entries) {
+    // Placeholder for best match finding logic
+    return entries[0];
+}
+
+void buildTLAS() {
+    std::vector<TLAS> tlasEntries;
+    for (const Mesh& mesh : meshes) {
+        Node& root = nodes[mesh.bvhRoot];
+        TLAS entry;
+        entry.min = root.min;
+        entry.max = root.max;
+        entry.idxOrLeft = mesh.bvhRoot;
+        entry.type = 0; // BVH
+        tlasEntries.push_back(entry);
+    }
+    for (const Sph& sph : spheres) {
+        TLAS entry;
+        entry.min = sph.center - vec3(sph.radius);
+        entry.max = sph.center + vec3(sph.radius);
+        entry.idxOrLeft = &sph - &spheres[0];
+        entry.type = 1; // Sphere
+        tlasEntries.push_back(entry);
+    }
+}

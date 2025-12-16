@@ -6,6 +6,7 @@ std::vector<Tri> triangles;
 std::vector<Mesh> meshes;
 std::vector<Sph> spheres;
 std::vector<Node> nodes;
+std::vector<TLAS> tlas;
 
 std::vector<Material> getMaterials() {
     std::vector<Material> tempMaterials;

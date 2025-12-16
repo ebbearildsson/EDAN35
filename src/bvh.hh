@@ -7,3 +7,5 @@
 void buildBVH(Mesh& mesh);
 
 void buildBVHs(std::vector<Mesh>& meshes);
+
+void buildTLAS();
