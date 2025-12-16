@@ -19,10 +19,7 @@ vec3 e2(Triangle tri) { return vec3(tri.d1.z, tri.d1.w, tri.d2.x); };
 vec3 v0(Triangle tri) { return vec3(tri.d0.x, tri.d0.y, tri.d0.z); };
 vec3 n(Triangle  tri) { return vec3(tri.d2.y, tri.d2.z, tri.d2.w); };
 
-struct Sphere {
-    vec4 data0; // center.x, center.y, center.z, radius
-};
-
+struct Sphere { vec4 data0; };
 vec3 center(Sphere sph) { return sph.data0.xyz; }
 float radius(Sphere sph) { return sph.data0.w; }
 
@@ -50,12 +47,10 @@ struct Hit {
     Material mat;
     vec3 Q;
     vec3 N;
-    int bvhDepth;
-    int triangleTests;
 };
 
 struct Mesh {
-    int materialIdx;
+    int matIdx;
     int bvhRoot;
     int triStart;
     int triCount;
@@ -139,62 +134,83 @@ float intersectAABB(vec3 rayOri, vec3 invDir, vec3 minBound, vec3 maxBound) {
     return hit ? tclose : MAXILON;
 }
 
-Hit traverseBVH(vec3 rayOri, vec3 rayDir, vec3 invRayDir, int meshIdx) {
-    float closestT = MAXILON;
-    float closestB = MAXILON;
+Hit traverseBVH(vec3 rayOri, vec3 rayDir, vec3 invRayDir, int meshIdx, float currentClosestT) {
+    float closestT = currentClosestT;
     uint closestN = 0xFFFFFFFF;
     int closestTri = -1;
 
-    uint stack[MAX_STACK_SIZE];
-    int stackPtr = 0;
-    stack[stackPtr++] = meshes[meshIdx].bvhRoot;
-    int depth = 0;
-    int triangleTests = 0;
+    uint istack[MAX_STACK_SIZE];
+    float tstack[MAX_STACK_SIZE];
+    int sp = 0;
+    istack[sp] = meshes[meshIdx].bvhRoot;
+    tstack[sp] = 0;
+    sp++;
 
-    while (stackPtr > 0) {
-        uint child = stack[--stackPtr];
+    while (sp-- > 0) {
+        float t = tstack[sp];
+        if (t >= closestT) continue;
+        
+        uint child = istack[sp];
         Node node = nodes[child];
 
-        float childT = intersectAABB(rayOri, invRayDir, nmin(node), nmax(node));
-        if (childT >= closestT) continue;
-        depth++;
-        if (count(node) > 0) {
-            for (uint i = leftOrStart(node); i < leftOrStart(node) + count(node); i++) {
-                float t = findTriangleIntersection(rayOri, rayDir, triIndices[i]);
-                triangleTests++;
+        uint count = count(node);
+        if (count > 0) {
+            uint start = leftOrStart(node);
+            for (uint i = start; i < start + count; i++) {
+                int triIndex = triIndices[i];
+                float t = findTriangleIntersection(rayOri, rayDir, triIndex);
                 if (t > 0.0 && t < closestT) {
                     closestT = t;
-                    closestTri = triIndices[i];
+                    closestTri = triIndex;
                     closestN = child;
                 }
             }
+            continue;
+        } 
+
+        uint left = leftOrStart(node);
+        uint right = left + 1u;
+
+        Node ln = nodes[left];
+        Node rn = nodes[right];
+
+        float tL = intersectAABB(rayOri, invRayDir, nmin(ln), nmax(ln));
+        float tR = intersectAABB(rayOri, invRayDir, nmin(rn), nmax(rn));
+
+        if (tL < tR) {
+            if (tR <= closestT && tR != MAXILON && sp < MAX_STACK_SIZE) { 
+                istack[sp] = right; 
+                tstack[sp] = tR; 
+                sp++; 
+            }
+            if (tL <= closestT && tL != MAXILON && sp < MAX_STACK_SIZE) { 
+                istack[sp] = left;  
+                tstack[sp] = tL; 
+                sp++; 
+            }
         } else {
-            uint left = leftOrStart(node);
-            uint right = left + 1;
-            float leftT = intersectAABB(rayOri, invRayDir, nmin(nodes[left]), nmax(nodes[left]));
-            float rightT = intersectAABB(rayOri, invRayDir, nmin(nodes[right]), nmax(nodes[right]));
-            if (leftT < rightT) {
-                stack[stackPtr++] = right;
-                stack[stackPtr++] = left;
-            } else {
-                stack[stackPtr++] = left;
-                stack[stackPtr++] = right;
+            if (tL < closestT && tL != MAXILON && sp < MAX_STACK_SIZE) { 
+                istack[sp] = left;  
+                tstack[sp] = tL; 
+                sp++; 
+            }
+            if (tR < closestT && tR != MAXILON && sp < MAX_STACK_SIZE) { 
+                istack[sp] = right; 
+                tstack[sp] = tR; 
+                sp++; 
             }
         }
     }
 
-    if (closestN == -1 || closestT == MAXILON) {
+    if (closestN == 0xFFFFFFFFu || closestT == MAXILON) {
         Hit noHit;
         noHit.t = MAXILON;
         return noHit;
     }
 
     Hit hit;
-    hit.bvhDepth = depth;
-    hit.triangleTests = triangleTests;
     hit.t = closestT;
     hit.node = nodes[closestN];
-    hit.mat = materials[meshes[meshIdx].materialIdx];
     hit.Q = rayOri + hit.t * rayDir;
     hit.N = n(triangles[closestTri]);
     return hit;
@@ -225,11 +241,16 @@ Hit intersectSpheres(vec3 rayOri, vec3 rayDir) {
 
 Hit getHit(vec3 rayOri, vec3 rayDir) {
     Hit closestHit = intersectSpheres(rayOri, rayDir);
+    vec3 inv = 1.0 / rayDir;
     for (int meshIdx = 0; meshIdx < meshes.length(); meshIdx++) {
-        Hit triHit = traverseBVH(rayOri, rayDir, 1.0 / rayDir, meshIdx);
+        Node topNode = nodes[meshes[meshIdx].bvhRoot];
+        float tAABB = intersectAABB(rayOri, inv, nmin(topNode), nmax(topNode));
+        if (tAABB >= closestHit.t) continue;
+
+        Hit triHit = traverseBVH(rayOri, rayDir, inv, meshIdx, closestHit.t);
         if (triHit.t < closestHit.t) {
             closestHit = triHit;
-            closestHit.mat = materials[meshes[meshIdx].materialIdx];
+            closestHit.mat = materials[meshes[meshIdx].matIdx];
         }
     }
     return closestHit;
@@ -237,26 +258,18 @@ Hit getHit(vec3 rayOri, vec3 rayDir) {
 
 vec4 getColorRay(vec3 rayOri, vec3 rayDir) {
     vec3 color = vec3(0.0);
-    struct Ray {
-        vec3 ori;
-        vec3 dir;
-        vec3 inv;
-    };
+    struct Ray { vec3 ori; vec3 dir; vec3 inv; };
 
     int depth = 0;
     Ray stack[MAX_STACK_SIZE];
-    int stackPtr = 0;
-    stack[stackPtr++] = Ray(rayOri, rayDir, 1.0 / rayDir);
-    while (stackPtr > 0) {
-        Ray ray = stack[--stackPtr];
+    int sp = 0;
+    stack[sp++] = Ray(rayOri, rayDir, 1.0 / rayDir);
+    while (sp > 0) {
+        Ray ray = stack[--sp];
         if (depth > DEPTH) continue;
 
         Hit hit = getHit(ray.ori, ray.dir);
         if (hit.t == MAXILON) continue;
-
-        // float bvhDepth = float(hit.bvhDepth) / float(32);
-        // float triangleTests = clamp(float(hit.triangleTests) / 50.0, 0.0, 1.0);
-        // return vec4(bvhDepth, 0.0, triangleTests, 1.0);
 
         vec3 N = faceforward(hit.N, ray.dir, hit.N);
 
@@ -268,14 +281,14 @@ vec4 getColorRay(vec3 rayOri, vec3 rayDir) {
             if (length(rd) > 0.0) {
                 vec3 offset = entering ? (-Ntrans * MINSILON) : (Ntrans * MINSILON);
                 rd = normalize(rd);
-                stack[stackPtr++] = Ray(hit.Q + offset, rd, 1.0 / rd);
+                stack[sp++] = Ray(hit.Q + offset, rd, 1.0 / rd);
                 depth++;
             }
         } 
         
         if (hit.mat.reflectivity > 0.0) {
             vec3 rd = reflect(normalize(ray.dir), N);
-            stack[stackPtr++] = Ray(hit.Q + N * MINSILON, rd, 1.0 / rd);
+            stack[sp++] = Ray(hit.Q + N * MINSILON, rd, 1.0 / rd);
             depth++;
         }
 
@@ -375,26 +388,29 @@ void main() {
     uv = uv * 2.0 - 1.0;
     uv.x *= aspect;
     vec3 rayDir = normalize(camForward + uv.x * tan(fov / 2.0) * normalize(cross(camForward, camUp)) + uv.y * tan(fov / 2.0) * camUp);
-    int d = int(floor(distance(vec2(pixel), mousePos))); //TODO: Use texture to get distance and sampling info
-    vec4 color = getColorRay(camPos, rayDir);
-    if (d < MAX_RAY_DISTANCE) {
-        int ray_density = int((MAX_RAY_DISTANCE - d) / MAX_RAY_DENSITY); //TODO: Handle this better
-        ray_density = min(ray_density, 5);
-        for (int y = -ray_density; y <= ray_density; y++) {
-            for (int x = -ray_density; x <= ray_density; x++) {
-                if (x == 0 && y == 0) continue;
-                vec2 offset = vec2(float(x), float(y)) * 0.001;
-                vec2 offsetUV = uv + offset;
-                vec3 offsetRayDir = normalize(camForward + offsetUV.x * tan(fov / 2.0) * normalize(cross(camForward, camUp)) + offsetUV.y * tan(fov / 2.0) * camUp);
-                color += getColorRay(camPos, offsetRayDir);
-            }
-        }
-        float totalRays = float((2 * ray_density + 1) * (2 * ray_density + 1));
-        color /= totalRays;
-    }
-    imageStore(imgOutput, pixel, color);
+    //int d = int(floor(distance(vec2(pixel), mousePos))); //TODO: Use texture to get distance and sampling info
+    //vec4 color = getColorRay(camPos, rayDir);
+    //if (d < MAX_RAY_DISTANCE) {
+    //    int ray_density = int((MAX_RAY_DISTANCE - d) / MAX_RAY_DENSITY); //TODO: Handle this better
+    //    ray_density = min(ray_density, 5);
+    //    for (int y = -ray_density; y <= ray_density; y++) {
+    //        for (int x = -ray_density; x <= ray_density; x++) {
+    //            if (x == 0 && y == 0) continue;
+    //            vec2 offset = vec2(float(x), float(y)) * 0.001;
+    //            vec2 offsetUV = uv + offset;
+    //            vec3 offsetRayDir = normalize(camForward + offsetUV.x * tan(fov / 2.0) * normalize(cross(camForward, camUp)) + offsetUV.y * tan(fov / 2.0) * camUp);
+    //            color += getColorRay(camPos, offsetRayDir);
+    //        }
+    //    }
+    //    float totalRays = float((2 * ray_density + 1) * (2 * ray_density + 1));
+    //    color /= totalRays;
+    //}
+    //imageStore(imgOutput, pixel, color);
 
     //vec4 prevColor = imageLoad(imgOutput, pixel);
     //vec4 color = getColorPath(camPos, rayDir, prevColor.rgb, time);
     //imageStore(imgOutput, pixel, color);
+
+    vec4 color = getColorRay(camPos, rayDir);
+    imageStore(imgOutput, pixel, color);
 }

@@ -26,7 +26,7 @@ void swap(int& a, int& b) {
 
 float area(vec3 minv, vec3 maxv) {
     vec3 e = maxv - minv;
-    return e.x * e.y + e.y * e.z + e.z * e.x;
+    return 2 * (e.x * e.y + e.y * e.z + e.z * e.x);
 }
 
 float evalSAH( Node node, int axis, float splitPos ) {
