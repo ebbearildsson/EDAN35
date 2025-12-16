@@ -20,20 +20,21 @@ vec3 v0(Triangle tri) { return vec3(tri.d0.x, tri.d0.y, tri.d0.z); };
 vec3 n(Triangle  tri) { return vec3(tri.d2.y, tri.d2.z, tri.d2.w); };
 
 struct Sphere {
-    vec3 center;
-    float radius;
+    vec4 data0; // center.x, center.y, center.z, radius
 };
 
+vec3 center(Sphere sph) { return sph.data0.xyz; }
+float radius(Sphere sph) { return sph.data0.w; }
+
 struct Node { //TODO: compact this better
-    vec3 min;
-    int left;
-    vec3 max;
-    int right;
-    int start;
-    int count;
-    int mat;
-    float _pad0;
+    vec4 data0; // min.x, min.y, min.z, leftOrStart
+    vec4 data1; // max.x, max.y, max.z, count
 };
+
+vec3 nmin(Node node) { return node.data0.xyz; }
+vec3 nmax(Node node) { return node.data1.xyz; }
+int leftOrStart(Node node) { return int(node.data0.w); }
+int count(Node node) { return int(node.data1.w); }
 
 struct Material {
     vec3 color; float _pad0;
@@ -109,10 +110,10 @@ float findTriangleIntersection(vec3 rayOrigin, vec3 rayDir, int i) {
 
 float findSphereIntersection(vec3 rayOri, vec3 rayDir, int i) {
     Sphere sph = spheres[i];
-    vec3 oc = rayOri - sph.center;
+    vec3 oc = rayOri - center(sph);
     float a = dot(rayDir, rayDir);
     float b = 2.0 * dot(oc, rayDir);
-    float c = dot(oc, oc) - sph.radius * sph.radius;
+    float c = dot(oc, oc) - pow(radius(sph), 2.0);
     float d = b * b - 4.0 * a * c;
     if (d < 0.0) return MAXILON;
 
@@ -154,11 +155,11 @@ Hit traverseBVH(vec3 rayOri, vec3 rayDir, vec3 invRayDir, int meshIdx) {
         int child = stack[--stackPtr];
         Node node = nodes[child];
 
-        float childT = intersectAABB(rayOri, invRayDir, node.min, node.max);
+        float childT = intersectAABB(rayOri, invRayDir, nmin(node), nmax(node));
         if (childT >= closestT) continue;
         depth++;
-        if (node.left == -1 && node.right == -1) {
-            for (int i = node.start; i < node.start + node.count; i++) {
+        if (count(node) > 0) {
+            for (int i = leftOrStart(node); i < leftOrStart(node) + count(node); i++) {
                 float t = findTriangleIntersection(rayOri, rayDir, triIndices[i]);
                 triangleTests++;
                 if (t > 0.0 && t < closestT) {
@@ -168,14 +169,16 @@ Hit traverseBVH(vec3 rayOri, vec3 rayDir, vec3 invRayDir, int meshIdx) {
                 }
             }
         } else {
-            float leftT = intersectAABB(rayOri, invRayDir, nodes[node.left].min, nodes[node.left].max);
-            float rightT = intersectAABB(rayOri, invRayDir, nodes[node.right].min, nodes[node.right].max);
+            int left = leftOrStart(node);
+            int right = left + 1;
+            float leftT = intersectAABB(rayOri, invRayDir, nmin(nodes[left]), nmax(nodes[left]));
+            float rightT = intersectAABB(rayOri, invRayDir, nmin(nodes[right]), nmax(nodes[right]));
             if (leftT < rightT) {
-                stack[stackPtr++] = node.right;
-                stack[stackPtr++] = node.left;
+                stack[stackPtr++] = left;
+                stack[stackPtr++] = right;
             } else {
-                stack[stackPtr++] = node.left;
-                stack[stackPtr++] = node.right;
+                stack[stackPtr++] = left;
+                stack[stackPtr++] = right;
             }
         }
     }
@@ -191,7 +194,7 @@ Hit traverseBVH(vec3 rayOri, vec3 rayDir, vec3 invRayDir, int meshIdx) {
     hit.triangleTests = triangleTests;
     hit.t = closestT;
     hit.node = nodes[closestN];
-    hit.mat = materials[hit.node.mat];
+    hit.mat = materials[meshes[meshIdx].materialIdx];
     hit.Q = rayOri + hit.t * rayDir;
     hit.N = n(triangles[closestTri]);
     return hit;
@@ -216,7 +219,7 @@ Hit intersectSpheres(vec3 rayOri, vec3 rayDir) {
     hit.t = closestT;
     hit.mat = materials[1];
     hit.Q = rayOri + hit.t * rayDir;
-    hit.N = normalize(hit.Q - spheres[closestIdx].center);
+    hit.N = normalize(hit.Q - center(spheres[closestIdx]));
     return hit;
 }
 
@@ -251,10 +254,9 @@ vec4 getColorRay(vec3 rayOri, vec3 rayDir) {
         Hit hit = getHit(ray.ori, ray.dir);
         if (hit.t == MAXILON) continue;
 
-        // temp test depth
-        //float bvhDepth = float(hit.bvhDepth) / float(32);
-        //float triangleTests = clamp(float(hit.triangleTests) / 50.0, 0.0, 1.0);
-        //return vec4(bvhDepth, 0.0, triangleTests, 1.0);
+        // float bvhDepth = float(hit.bvhDepth) / float(32);
+        // float triangleTests = clamp(float(hit.triangleTests) / 50.0, 0.0, 1.0);
+        // return vec4(bvhDepth, 0.0, triangleTests, 1.0);
 
         vec3 N = faceforward(hit.N, ray.dir, hit.N);
 
@@ -277,13 +279,13 @@ vec4 getColorRay(vec3 rayOri, vec3 rayDir) {
             depth++;
         }
 
-        vec3 diffuse = abs(dot(N, normalize(lightPos - hit.Q))) * hit.mat.color;
+        vec3 lightDir = normalize(lightPos - hit.Q);
+        vec3 diffuse = abs(dot(N, lightDir)) * hit.mat.color;
         
         if (hit.mat.emission > 0.0) {
             color += hit.mat.color * hit.mat.emission;
         }
 
-        vec3 lightDir = normalize(lightPos - hit.Q);
         Hit shadowHit = getHit(hit.Q + N * MINSILON, lightDir);
         float lightDist = length(lightPos - hit.Q);
         if (shadowHit.t < lightDist) {

@@ -53,8 +53,7 @@ struct GPUTri {
 };
 
 struct GPUSph {
-    vec3 center;
-    float radius;
+    vec4 data0; // center.x, center.y, center.z, radius
 };
 
 struct Material { //TODO: compact this
@@ -76,6 +75,11 @@ struct Node {
     float _pad0;
 };
 
+struct GPUNode {
+    vec4 data0; // min.x, min.y, min.z, leftOrStart
+    vec4 data1; // max.x, max.y, max.z, count
+};
+
 struct Type {
     int idx;
     int type; // 0 = triangle, 1 = sphere
@@ -91,6 +95,8 @@ struct Mesh {
 static_assert(sizeof(GPUTri) == 48, "GPUTri size incorrect");
 static_assert(sizeof(Node) == 48, "Node size incorrect");
 static_assert(sizeof(GPUSph) == 16, "GPUSph size incorrect");
+static_assert(sizeof(GPUNode) == 32, "GPUNode size incorrect");
+
 
 extern std::vector<Node> nodes;
 extern std::vector<Sph> spheres;

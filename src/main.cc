@@ -93,18 +93,26 @@ void init(GLuint triSSBO, GLuint sphSSBO, GLuint bvhSSBO, GLuint triIndSSBO, GLu
         gtri.data2 = vec4(e2.z, tri.normal);
         gpuTris.push_back(gtri);
     }
+
     vector<GPUSph> gpuSphs;
     for (Sph& sph : spheres) {
         GPUSph gsph;
-        gsph.center = sph.center;
-        gsph.radius = sph.radius;
+        gsph.data0 = vec4(sph.center, sph.radius);
         gpuSphs.push_back(gsph);
+    }
+
+    vector<GPUNode> gpuNodes;
+    for (Node& node : nodes) {
+        GPUNode gnode;
+        gnode.data0 = vec4(node.min, (node.count == 0) ? static_cast<float>(node.left) : static_cast<float>(node.start));
+        gnode.data1 = vec4(node.max, static_cast<float>(node.count));
+        gpuNodes.push_back(gnode);
     }
 
     cout << "Memory Usage:\n"
          << " - Triangle size: " << (gpuTris.size() * sizeof(GPUTri)) / 1000000.0 << " MB" << "\n"
          << " - Sphere size: " << (gpuSphs.size() * sizeof(GPUSph)) / 1000000.0 << " MB" << "\n"
-         << " - BVH size: " << (nodes.size() * sizeof(Node)) / 1000000.0 << " MB" << "\n"
+         << " - BVH size: " << (gpuNodes.size() * sizeof(GPUNode)) / 1000000.0 << " MB" << "\n"
          << "Total Amounts:\n"
          << " - triangles: " << triangles.size() << "\n"
          << " - spheres: " << spheres.size() << "\n"
@@ -112,7 +120,7 @@ void init(GLuint triSSBO, GLuint sphSSBO, GLuint bvhSSBO, GLuint triIndSSBO, GLu
 
     createAndFillSSBO<GPUTri>(triSSBO, 0, gpuTris);
     createAndFillSSBO<GPUSph>(sphSSBO, 1, gpuSphs);
-    createAndFillSSBO<Node>(bvhSSBO, 2, nodes);
+    createAndFillSSBO<GPUNode>(bvhSSBO, 2, gpuNodes);
     createAndFillSSBO<int>(triIndSSBO, 4, triIndices);
     createAndFillSSBO<Mesh>(meshSSBO, 5, meshes);
 }

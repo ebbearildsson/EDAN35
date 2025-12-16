@@ -64,6 +64,8 @@ float evalSAH( Node node, int axis, float splitPos ) {
     return cost;
 }
 
+int usedNodes = 0;
+
 void subdivide(int idx, int depth = 0) {
     Node& node = nodes[idx];
     if (node.count <= Config::minVolumeAmount || depth >= Config::maxBVHDepth) return;
@@ -74,8 +76,7 @@ void subdivide(int idx, int depth = 0) {
     float bestCost = parentCost;
     for (int a = 0; a < 3; ++a) {
         for (int k = node.start; k < node.start + node.count; ++k) {
-            const vec3 c = triangles[triIndices[k]].c;
-            float cost = evalSAH( node, a, c[a] );
+            float cost = evalSAH( node, a, triangles[triIndices[k]].c[a] );
             if (cost < bestCost) {
                 bestCost = cost;
                 bestSplit = k;
@@ -97,47 +98,44 @@ void subdivide(int idx, int depth = 0) {
     int leftCount = i - node.start;
     if (leftCount == 0 || leftCount == node.count) return;
 
-    Node leftNode;
-    leftNode.start = node.start;
-    leftNode.count = leftCount;
-    leftNode.mat = 0;
-    leftNode.left = -1;
-    leftNode.right = -1;
-    nodes.push_back(leftNode);
-    int leftChildIdx = static_cast<int>(nodes.size() - 1);
-    shrinkBounds( leftChildIdx );
-    
-    Node rightNode;
-    rightNode.start = i;
-    rightNode.count = node.count - leftCount;
-    rightNode.mat = 0;
-    rightNode.left = -1;
-    rightNode.right = -1;
-    nodes.push_back(rightNode);
-    int rightChildIdx = static_cast<int>(nodes.size() - 1);
-    shrinkBounds( rightChildIdx );
+    int leftChildIdx = usedNodes++;
+    int rightChildIdx = usedNodes++;
 
-    nodes[idx].left = leftChildIdx;
-    nodes[idx].right = rightChildIdx;
+    nodes[leftChildIdx].left = -1;
+    nodes[leftChildIdx].right = -1;
+    nodes[leftChildIdx].start = node.start;
+    nodes[leftChildIdx].count = leftCount;
+
+    nodes[rightChildIdx].left = -1;
+    nodes[rightChildIdx].right = -1;
+    nodes[rightChildIdx].start = i;
+    nodes[rightChildIdx].count = node.count - leftCount;
+    
+    node.left = leftChildIdx;
+    node.count = 0;
+
+    shrinkBounds( leftChildIdx );
+    shrinkBounds( rightChildIdx );
 
     subdivide( leftChildIdx, depth + 1 );
     subdivide( rightChildIdx, depth + 1 );
 }
 
 void buildBVH(Mesh& mesh) {
-    Node root;
-    root.start = mesh.triStart;
-    root.count = mesh.triCount;
-    root.min = vec3(FLT_MAX);
-    root.max = vec3(-FLT_MAX);
-    root.left = -1;
-    root.right = -1;
-    nodes.push_back(root);
-    int idx = static_cast<int>(nodes.size() - 1);
+    nodes.resize(usedNodes + mesh.triCount * 2 - 1);
+    int idx = usedNodes++;
+
+    nodes[idx].start = mesh.triStart;
+    nodes[idx].count = mesh.triCount;
+    nodes[idx].mat = mesh.materialIdx;
+    nodes[idx].left = 0;
+    nodes[idx].right = 0;
     shrinkBounds( idx );
     subdivide( idx );
 
     mesh.bvhRoot = idx;
+
+    nodes.resize(usedNodes);
 }
 
 void buildBVHs(std::vector<Mesh>& meshes) {
