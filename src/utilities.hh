@@ -18,14 +18,14 @@ int   rnd(int min, int max);
 std::vector<std::string> split(const std::string& s, const std::string& delimiter);
 
 // OBJ loader
-std::vector<Tri> createObjectFromFile(const std::string& path,
-                                      std::unordered_map<std::string, int>& materialMap);
-void rotate_object_y(std::vector<Tri>& tris, float angle);
-void rotate_object_x(std::vector<Tri>& tris, float angle);
-void rotate_object_z(std::vector<Tri>& tris, float angle);
-void scale_object(std::vector<Tri>& tris, float scale);
-void translate_object(std::vector<Tri>& tris, glm::vec3 translation);
+std::vector<Tri> createObjectFromFile(const std::string& path, std::unordered_map<std::string, int>& materialMap);
 void add_object(std::vector<Tri>& tris, int materialIdx = -1);
+void apply_transform(std::vector<Tri>& tris, const glm::mat4& transform);
+mat4 get_translation(glm::vec3 translation);
+mat4 get_scaling(float scale);
+mat4 get_rotation_x(float angle);
+mat4 get_rotation_y(float angle);
+mat4 get_rotation_z(float angle);
 
 // File IO
 std::string loadFile(const std::string& path);

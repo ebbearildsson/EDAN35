@@ -216,67 +216,6 @@ void createCamera(GLuint &cameraUBO, Camera &cam, int width, int height) {
     createAndFillUBO<Camera>(cameraUBO, 0, cam);
 }
 
-void translate_object(vector<Tri>& tris, vec3 translation) {
-    for (Tri& tri : tris) {
-        tri.v0 += translation;
-        tri.v1 += translation;
-        tri.v2 += translation;
-        tri.max = max(tri.v0, max(tri.v1, tri.v2));
-        tri.min = min(tri.v0, min(tri.v1, tri.v2));
-        tri.c = (tri.v0 + tri.v1 + tri.v2) / 3.0f;
-    }
-}
-
-void rotate_object_y(vector<Tri>& tris, float angle) {
-    mat4 rotation = glm::rotate(mat4(1.0f), angle, vec3(0.0f, 1.0f, 0.0f));
-    for (Tri& tri : tris) {
-        tri.v0 = vec3(rotation * vec4(tri.v0, 1.0f));
-        tri.v1 = vec3(rotation * vec4(tri.v1, 1.0f));
-        tri.v2 = vec3(rotation * vec4(tri.v2, 1.0f));
-        tri.max = max(tri.v0, max(tri.v1, tri.v2));
-        tri.min = min(tri.v0, min(tri.v1, tri.v2));
-        tri.c = (tri.v0 + tri.v1 + tri.v2) / 3.0f;
-        tri.normal = normalize(vec3(rotation * vec4(tri.normal, 0.0f)));
-    }
-}
-
-void rotate_object_x(vector<Tri>& tris, float angle) {
-    mat4 rotation = glm::rotate(mat4(1.0f), angle, vec3(1.0f, 0.0f, 0.0f));
-    for (Tri& tri : tris) {
-        tri.v0 = vec3(rotation * vec4(tri.v0, 1.0f));
-        tri.v1 = vec3(rotation * vec4(tri.v1, 1.0f));
-        tri.v2 = vec3(rotation * vec4(tri.v2, 1.0f));
-        tri.max = max(tri.v0, max(tri.v1, tri.v2));
-        tri.min = min(tri.v0, min(tri.v1, tri.v2));
-        tri.c = (tri.v0 + tri.v1 + tri.v2) / 3.0f;
-        tri.normal = normalize(vec3(rotation * vec4(tri.normal, 0.0f)));
-    }
-}
-
-void rotate_object_z(vector<Tri>& tris, float angle) {
-    mat4 rotation = glm::rotate(mat4(1.0f), angle, vec3(0.0f, 0.0f, 1.0f));
-    for (Tri& tri : tris) {
-        tri.v0 = vec3(rotation * vec4(tri.v0, 1.0f));
-        tri.v1 = vec3(rotation * vec4(tri.v1, 1.0f));
-        tri.v2 = vec3(rotation * vec4(tri.v2, 1.0f));
-        tri.max = max(tri.v0, max(tri.v1, tri.v2));
-        tri.min = min(tri.v0, min(tri.v1, tri.v2));
-        tri.c = (tri.v0 + tri.v1 + tri.v2) / 3.0f;
-        tri.normal = normalize(vec3(rotation * vec4(tri.normal, 0.0f)));
-    }
-}
-
-void scale_object(vector<Tri>& tris, float scale) {
-    for (Tri& tri : tris) {
-        tri.v0 *= scale;
-        tri.v1 *= scale;
-        tri.v2 *= scale;
-        tri.max = max(tri.v0, max(tri.v1, tri.v2));
-        tri.min = min(tri.v0, min(tri.v1, tri.v2));
-        tri.c = (tri.v0 + tri.v1 + tri.v2) / 3.0f;
-    }
-}
-
 void add_object(std::vector<Tri>& tris, int materialIdx) {
     for (int i = 0; i < tris.size(); i++) {
         Tri tri = tris[i];
@@ -284,4 +223,36 @@ void add_object(std::vector<Tri>& tris, int materialIdx) {
         triangles.push_back(tri);
         triIndices.push_back(static_cast<int>(triangles.size() - 1));
     }
+}
+
+void apply_transform(std::vector<Tri>& tris, const glm::mat4& transform) {
+    for (Tri& tri : tris) {
+        tri.v0 = vec3(transform * vec4(tri.v0, 1.0f));
+        tri.v1 = vec3(transform * vec4(tri.v1, 1.0f));
+        tri.v2 = vec3(transform * vec4(tri.v2, 1.0f));
+        tri.max = max(tri.v0, max(tri.v1, tri.v2));
+        tri.min = min(tri.v0, min(tri.v1, tri.v2));
+        tri.c = (tri.v0 + tri.v1 + tri.v2) / 3.0f;
+        tri.normal = normalize(vec3(transform * vec4(tri.normal, 0.0f)));
+    }
+}
+
+mat4 get_translation(glm::vec3 translation) {
+    return glm::translate(mat4(1.0f), translation);
+}
+
+mat4 get_scaling(float scale) {
+    return glm::scale(mat4(1.0f), vec3(scale));
+}
+
+mat4 get_rotation_x(float angle) {
+    return glm::rotate(mat4(1.0f), angle, vec3(1.0f, 0.0f, 0.0f));
+}
+
+mat4 get_rotation_y(float angle) {
+    return glm::rotate(mat4(1.0f), angle, vec3(0.0f, 1.0f, 0.0f));
+}
+
+mat4 get_rotation_z(float angle) {
+    return glm::rotate(mat4(1.0f), angle, vec3(0.0f, 0.0f, 1.0f));
 }
