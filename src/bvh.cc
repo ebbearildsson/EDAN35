@@ -124,10 +124,13 @@ void subdivide(int idx, int depth = 0) {
     subdivide( rightChildIdx, depth + 1 );
 }
 
-void buildBVH() {
+Mesh buildBVH(int triStart, int triCount, int materialIdx) {
+    Mesh mesh;
+    mesh.materialIdx = materialIdx;
+
     Node root;
-    root.start = 0;
-    root.count = static_cast<int>(triIndices.size());
+    root.start = triStart;
+    root.count = triCount;
     root.min = vec3(FLT_MAX);
     root.max = vec3(-FLT_MAX);
     root.left = -1;
@@ -136,4 +139,7 @@ void buildBVH() {
     int idx = static_cast<int>(nodes.size() - 1);
     shrinkBounds( idx );
     subdivide( idx );
+
+    mesh.bvhRoot = idx;
+    return mesh;
 }

@@ -53,6 +53,11 @@ struct Hit {
     int triangleTests;
 };
 
+struct Mesh {
+    int materialIdx;
+    int bvhRoot;
+};
+
 layout (local_size_x = 8, local_size_y = 8) in;
 
 layout (rgba32f, binding = 0) uniform image2D imgOutput;
@@ -81,6 +86,8 @@ layout (std430, binding = 2) buffer BVH { Node nodes[]; };
 layout (std430, binding = 3) buffer Materials { Material materials[]; };
 
 layout (std430, binding = 4) buffer TriIndices { int triIndices[]; };
+
+layout (std430, binding = 5) buffer Meshes { Mesh meshes[]; };
 
 float findTriangleIntersection(vec3 rayOrigin, vec3 rayDir, int i) {
     Triangle tri = triangles[i];
@@ -129,7 +136,7 @@ float intersectAABB(vec3 rayOri, vec3 invDir, vec3 minBound, vec3 maxBound) {
     return hit ? tclose : MAXILON;
 }
 
-Hit traverseBVH(vec3 rayOri, vec3 rayDir, vec3 invRayDir) {
+Hit traverseBVH(vec3 rayOri, vec3 rayDir, vec3 invRayDir, int meshIdx) {
     float closestT = MAXILON;
     float closestB = MAXILON;
     int closestN = -1;
@@ -137,7 +144,7 @@ Hit traverseBVH(vec3 rayOri, vec3 rayDir, vec3 invRayDir) {
 
     int stack[MAX_STACK_SIZE];
     int stackPtr = 0;
-    stack[stackPtr++] = 0;
+    stack[stackPtr++] = meshes[meshIdx].bvhRoot;
     int depth = 0;
     int triangleTests = 0;
 
@@ -212,9 +219,15 @@ Hit intersectSpheres(vec3 rayOri, vec3 rayDir) {
 }
 
 Hit getHit(vec3 rayOri, vec3 rayDir) {
-    Hit sphHit = intersectSpheres(rayOri, rayDir);
-    Hit triHit = traverseBVH(rayOri, rayDir, 1.0 / rayDir);
-    return (sphHit.t < triHit.t) ? sphHit : triHit;
+    Hit closestHit = intersectSpheres(rayOri, rayDir);
+    for (int meshIdx = 0; meshIdx < meshes.length(); meshIdx++) {
+        Hit triHit = traverseBVH(rayOri, rayDir, 1.0 / rayDir, meshIdx);
+        if (triHit.t < closestHit.t) {
+            closestHit = triHit;
+            closestHit.mat = materials[meshes[meshIdx].materialIdx];
+        }
+    }
+    return closestHit;
 }
 
 vec4 getColorRay(vec3 rayOri, vec3 rayDir) {

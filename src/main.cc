@@ -30,10 +30,16 @@ void generate_scene() {
     translate_object(suz, vec3(-1.75f, 1.8f, 0.0f));
     add_object(suz);
 
+    Mesh suzMesh = buildBVH(static_cast<int>(triIndices.size() - static_cast<int>(suz.size())), static_cast<int>(suz.size()), 0);
+    meshes.push_back(suzMesh);
+
     vector<Tri> box = createObjectFromFile("../models/cornell-box.obj", materialMap);
     scale_object(box, 2.0f);
     translate_object(box, vec3(0.4f, -5.0f, 8.0f));
     add_object(box);
+
+    Mesh boxMesh = buildBVH(static_cast<int>(triIndices.size() - static_cast<int>(box.size())), static_cast<int>(box.size()), 0);
+    meshes.push_back(boxMesh);
 
     vector<Tri> spot = createObjectFromFile("../models/spot.obj", materialMap);
     rotate_object_y(spot, radians(130.0f));
@@ -41,9 +47,13 @@ void generate_scene() {
     translate_object(spot, vec3(1.2f, -1.3f, 4.2f));
     add_object(spot);
 
+    Mesh spotMesh = buildBVH(static_cast<int>(triIndices.size() - static_cast<int>(spot.size())), static_cast<int>(spot.size()), materialMap["Purple"]);
+    meshes.push_back(spotMesh);
+
     const float s = 5.0f;
     const float ts = 1.0f;
     srand(69);
+    int start = static_cast<int>(triangles.size());
     for (int i = 0; i < Config::Num; i++) {
         Tri tri;
         vec3 j0 = vec3(rnd(-s, s), rnd(-s, s), rnd(-s, s));
@@ -62,14 +72,15 @@ void generate_scene() {
         Sph sph;
         sph.center = vec3(rnd(-s, s), rnd(-s, s), rnd(-s, s));
         sph.radius = rnd(0.1f, 0.8f);
-        sph.materialIdx = 1;
+        sph.materialIdx = rnd(0, 1) > 0.5f ? materialMap["BloodyRed"] : materialMap["DarkGreen"];
         spheres.push_back(sph);
     }
+    Mesh randomMesh = buildBVH(start, Config::Num, materialMap["DarkGreen"]);
+    meshes.push_back(randomMesh);
 }
 
-void init(GLuint triSSBO, GLuint sphSSBO, GLuint bvhSSBO) {
+void init(GLuint triSSBO, GLuint sphSSBO, GLuint bvhSSBO, GLuint triIndSSBO, GLuint meshSSBO) {
     generate_scene();
-    buildBVH();
 
     vector<GPUTri> gpuTris;
     for (Tri& tri : triangles) {
@@ -102,7 +113,8 @@ void init(GLuint triSSBO, GLuint sphSSBO, GLuint bvhSSBO) {
     createAndFillSSBO<GPUTri>(triSSBO, 0, gpuTris);
     createAndFillSSBO<GPUSph>(sphSSBO, 1, gpuSphs);
     createAndFillSSBO<Node>(bvhSSBO, 2, nodes);
-    createAndFillSSBO<int>(triSSBO, 4, triIndices);
+    createAndFillSSBO<int>(triIndSSBO, 4, triIndices);
+    createAndFillSSBO<Mesh>(meshSSBO, 5, meshes);
 }
 
 int main() {
@@ -155,11 +167,11 @@ int main() {
     GLuint mouseUBO;
     createAndFillUBO<vec2>(mouseUBO, 2, mousePos);
 
-    GLuint triSSBO, sphSSBO, bvhSSBO, materialSSBO;
+    GLuint triSSBO, sphSSBO, bvhSSBO, materialSSBO, triIndSSBO, meshSSBO;
     createAndFillSSBO<Material>(materialSSBO, 3, materials);
 
     float initialTime = glfwGetTime();
-    init(triSSBO, sphSSBO, bvhSSBO);
+    init(triSSBO, sphSSBO, bvhSSBO, triIndSSBO, meshSSBO);
     cout << "BVH build time: " << (glfwGetTime() - initialTime) << " seconds\n";
     
     int nbFrames = 0;

@@ -46,7 +46,7 @@ struct Light {
     float intensity;
 };
 
-struct GPUTri { //TODO: compact this
+struct GPUTri {
     vec4 data0; // v0.x, v0.y, v0.z, e1.x
     vec4 data1; // e1.y, e1.z, e2.x, e2.y
     vec4 data2; // e2.z, normal.x, normal.y, normal.z
@@ -65,17 +65,6 @@ struct Material { //TODO: compact this
     float refractiveIndex;
 };
 
-struct OldNode { //TODO: compact this
-    vec3 min;
-    int idx;
-    vec3 max;
-    int ownIdx; //TODO: remove
-    int left;
-    int right;
-    int type;
-    int materialIdx;
-};
-
 struct Node {
     vec3 min;
     int left;
@@ -92,13 +81,19 @@ struct Type {
     int type; // 0 = triangle, 1 = sphere
 };
 
+struct Mesh {
+    int materialIdx;
+    int bvhRoot;
+};
+
 static_assert(sizeof(GPUTri) == 48, "GPUTri size incorrect");
 static_assert(sizeof(Node) == 48, "Node size incorrect");
 static_assert(sizeof(GPUSph) == 16, "GPUSph size incorrect");
 
 extern std::vector<Node> nodes;
+extern std::vector<Sph> spheres;
+extern std::vector<Mesh> meshes;
 extern std::vector<Tri> triangles;
 extern std::vector<int> triIndices;
-extern std::vector<Sph> spheres;
 extern std::vector<Material> materials;
 extern std::unordered_map<std::string, int> materialMap;

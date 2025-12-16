@@ -1,8 +1,9 @@
 #include <structs.hh>
 #include <vector>
 
-std::vector<Tri> triangles;
 std::vector<int> triIndices;
+std::vector<Tri> triangles;
+std::vector<Mesh> meshes;
 std::vector<Sph> spheres;
 std::vector<Node> nodes;
 
