@@ -33,8 +33,8 @@ struct Node { //TODO: compact this better
 
 vec3 nmin(Node node) { return node.data0.xyz; }
 vec3 nmax(Node node) { return node.data1.xyz; }
-int leftOrStart(Node node) { return int(node.data0.w); }
-int count(Node node) { return int(node.data1.w); }
+uint leftOrStart(Node node) { return floatBitsToUint(node.data0.w); }
+uint count(Node node) { return floatBitsToUint(node.data1.w); }
 
 struct Material {
     vec3 color; float _pad0;
@@ -142,24 +142,24 @@ float intersectAABB(vec3 rayOri, vec3 invDir, vec3 minBound, vec3 maxBound) {
 Hit traverseBVH(vec3 rayOri, vec3 rayDir, vec3 invRayDir, int meshIdx) {
     float closestT = MAXILON;
     float closestB = MAXILON;
-    int closestN = -1;
+    uint closestN = 0xFFFFFFFF;
     int closestTri = -1;
 
-    int stack[MAX_STACK_SIZE];
+    uint stack[MAX_STACK_SIZE];
     int stackPtr = 0;
     stack[stackPtr++] = meshes[meshIdx].bvhRoot;
     int depth = 0;
     int triangleTests = 0;
 
     while (stackPtr > 0) {
-        int child = stack[--stackPtr];
+        uint child = stack[--stackPtr];
         Node node = nodes[child];
 
         float childT = intersectAABB(rayOri, invRayDir, nmin(node), nmax(node));
         if (childT >= closestT) continue;
         depth++;
         if (count(node) > 0) {
-            for (int i = leftOrStart(node); i < leftOrStart(node) + count(node); i++) {
+            for (uint i = leftOrStart(node); i < leftOrStart(node) + count(node); i++) {
                 float t = findTriangleIntersection(rayOri, rayDir, triIndices[i]);
                 triangleTests++;
                 if (t > 0.0 && t < closestT) {
@@ -169,13 +169,13 @@ Hit traverseBVH(vec3 rayOri, vec3 rayDir, vec3 invRayDir, int meshIdx) {
                 }
             }
         } else {
-            int left = leftOrStart(node);
-            int right = left + 1;
+            uint left = leftOrStart(node);
+            uint right = left + 1;
             float leftT = intersectAABB(rayOri, invRayDir, nmin(nodes[left]), nmax(nodes[left]));
             float rightT = intersectAABB(rayOri, invRayDir, nmin(nodes[right]), nmax(nodes[right]));
             if (leftT < rightT) {
-                stack[stackPtr++] = left;
                 stack[stackPtr++] = right;
+                stack[stackPtr++] = left;
             } else {
                 stack[stackPtr++] = left;
                 stack[stackPtr++] = right;

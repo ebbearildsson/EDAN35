@@ -15,6 +15,7 @@
 #include <sstream>
 #include <vector>
 #include <string>
+#include <cstring>
 
 using namespace glm;
 using namespace std;
@@ -79,6 +80,12 @@ void generate_scene() {
     meshes.push_back(randomMesh);
 }
 
+static inline float toFloat(int v) {
+    float f;
+    memcpy(&f, &v, sizeof(float));
+    return f;
+}
+
 void init(GLuint triSSBO, GLuint sphSSBO, GLuint bvhSSBO, GLuint triIndSSBO, GLuint meshSSBO) {
     generate_scene();
 
@@ -101,11 +108,12 @@ void init(GLuint triSSBO, GLuint sphSSBO, GLuint bvhSSBO, GLuint triIndSSBO, GLu
         gpuSphs.push_back(gsph);
     }
 
+
     vector<GPUNode> gpuNodes;
     for (Node& node : nodes) {
         GPUNode gnode;
-        gnode.data0 = vec4(node.min, (node.count == 0) ? static_cast<float>(node.left) : static_cast<float>(node.start));
-        gnode.data1 = vec4(node.max, static_cast<float>(node.count));
+        gnode.data0 = vec4(node.min, toFloat(node.start));
+        gnode.data1 = vec4(node.max, toFloat(node.count));
         gpuNodes.push_back(gnode);
     }
 

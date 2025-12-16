@@ -66,13 +66,9 @@ struct Material { //TODO: compact this
 
 struct Node {
     vec3 min;
-    int left;
     vec3 max;
-    int right;
     int start;
     int count;
-    int mat;
-    float _pad0;
 };
 
 struct GPUNode {
@@ -93,7 +89,7 @@ struct Mesh {
 };
 
 static_assert(sizeof(GPUTri) == 48, "GPUTri size incorrect");
-static_assert(sizeof(Node) == 48, "Node size incorrect");
+static_assert(sizeof(Node) == 32, "Node size incorrect");
 static_assert(sizeof(GPUSph) == 16, "GPUSph size incorrect");
 static_assert(sizeof(GPUNode) == 32, "GPUNode size incorrect");
 

@@ -101,17 +101,13 @@ void subdivide(int idx, int depth = 0) {
     int leftChildIdx = usedNodes++;
     int rightChildIdx = usedNodes++;
 
-    nodes[leftChildIdx].left = -1;
-    nodes[leftChildIdx].right = -1;
     nodes[leftChildIdx].start = node.start;
     nodes[leftChildIdx].count = leftCount;
 
-    nodes[rightChildIdx].left = -1;
-    nodes[rightChildIdx].right = -1;
     nodes[rightChildIdx].start = i;
     nodes[rightChildIdx].count = node.count - leftCount;
     
-    node.left = leftChildIdx;
+    node.start = leftChildIdx;
     node.count = 0;
 
     shrinkBounds( leftChildIdx );
@@ -124,17 +120,11 @@ void subdivide(int idx, int depth = 0) {
 void buildBVH(Mesh& mesh) {
     nodes.resize(usedNodes + mesh.triCount * 2 - 1);
     int idx = usedNodes++;
-
     nodes[idx].start = mesh.triStart;
     nodes[idx].count = mesh.triCount;
-    nodes[idx].mat = mesh.materialIdx;
-    nodes[idx].left = 0;
-    nodes[idx].right = 0;
     shrinkBounds( idx );
     subdivide( idx );
-
     mesh.bvhRoot = idx;
-
     nodes.resize(usedNodes);
 }
 
