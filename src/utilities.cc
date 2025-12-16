@@ -42,16 +42,27 @@ vector<string> split(const string& s, const string& delimiter) {
     return tokens;
 }
 
-vector<Tri> createObjectFromFile(const string& path, std::unordered_map<string, int>& materialMap) {
+vector<Mesh> createObjectFromFile(const string& path) {
     vector<vec3> temp_vertices;
     vector<vec3> temp_normals;
-    vector<Tri> tris;
+    vector<Mesh> meshes;
     ifstream file(path);
     // if (!file.is_open()) throw runtime_error("Failed to open OBJ file: " + path);
     string line;
     int currentMaterial = -1;
+    int currentStart = static_cast<int>(triangles.size());
+    int currentCount = 0;
     while (getline(file, line)) {
-        if (line.substr(0, 6) == "usemtl") {
+        if (line.substr(0, 1) == "o" && currentCount > 0) {
+            Mesh mesh;
+            mesh.materialIdx = currentMaterial;
+            mesh.bvhRoot = -1; // to be set later
+            mesh.triStart = currentStart;
+            mesh.triCount = currentCount;
+            meshes.push_back(mesh);
+            currentStart = static_cast<int>(triangles.size());
+            currentCount = 0;
+        } else if (line.substr(0, 6) == "usemtl") {
             istringstream s(line.substr(6));
             string materialName;
             s >> materialName;
@@ -105,12 +116,23 @@ vector<Tri> createObjectFromFile(const string& path, std::unordered_map<string, 
                 tri.normal = normalize(cross(tri.v1 - tri.v0, tri.v2 - tri.v0));
             }
             tri.materialIdx = currentMaterial;
-            tris.push_back(tri);
+            triangles.push_back(tri);
+            triIndices.push_back(static_cast<int>(triangles.size() - 1));
+            currentCount++;
         }
     }
 
+    if (currentCount > 0) {
+        Mesh mesh;
+        mesh.materialIdx = currentMaterial;
+        mesh.bvhRoot = -1; // to be set later
+        mesh.triStart = currentStart;
+        mesh.triCount = currentCount;
+        meshes.push_back(mesh);
+    }
+
     file.close();
-    return tris;
+    return meshes;
 }
 
 string loadFile(const string& path) {
@@ -225,16 +247,14 @@ void add_object(std::vector<Tri>& tris, int materialIdx) {
     }
 }
 
-void apply_transform(std::vector<Tri>& tris, const glm::mat4& transform) {
-    for (Tri& tri : tris) {
-        tri.v0 = vec3(transform * vec4(tri.v0, 1.0f));
-        tri.v1 = vec3(transform * vec4(tri.v1, 1.0f));
-        tri.v2 = vec3(transform * vec4(tri.v2, 1.0f));
-        tri.max = max(tri.v0, max(tri.v1, tri.v2));
-        tri.min = min(tri.v0, min(tri.v1, tri.v2));
-        tri.c = (tri.v0 + tri.v1 + tri.v2) / 3.0f;
-        tri.normal = normalize(vec3(transform * vec4(tri.normal, 0.0f)));
-    }
+void apply_transform(Tri& tri, const glm::mat4& transform) {
+    tri.v0 = vec3(transform * vec4(tri.v0, 1.0f));
+    tri.v1 = vec3(transform * vec4(tri.v1, 1.0f));
+    tri.v2 = vec3(transform * vec4(tri.v2, 1.0f));
+    tri.min = min(tri.v0, min(tri.v1, tri.v2));
+    tri.max = max(tri.v0, max(tri.v1, tri.v2));
+    tri.c = (tri.v0 + tri.v1 + tri.v2) / 3.0f;
+    tri.normal = normalize(mat3(transpose(inverse(transform))) * tri.normal);
 }
 
 mat4 get_translation(glm::vec3 translation) {
@@ -255,4 +275,12 @@ mat4 get_rotation_y(float angle) {
 
 mat4 get_rotation_z(float angle) {
     return glm::rotate(mat4(1.0f), angle, vec3(0.0f, 0.0f, 1.0f));
+}
+
+void transform(const std::vector<Mesh>& meshes, const glm::mat4& transform) {
+    for (const Mesh& mesh : meshes) {
+        for (int i = mesh.triStart; i < mesh.triStart + mesh.triCount; i++) {
+            apply_transform(triangles[i], transform);
+        }
+    }
 }

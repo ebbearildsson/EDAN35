@@ -4,4 +4,6 @@
 #include <glm/glm.hpp>
 #include <structs.hh>
 
-Mesh buildBVH(int triStart, int triCount, int materialIdx);
+void buildBVH(Mesh& mesh);
+
+void buildBVHs(std::vector<Mesh>& meshes);

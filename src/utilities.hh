@@ -18,9 +18,10 @@ int   rnd(int min, int max);
 std::vector<std::string> split(const std::string& s, const std::string& delimiter);
 
 // OBJ loader
-std::vector<Tri> createObjectFromFile(const std::string& path, std::unordered_map<std::string, int>& materialMap);
+std::vector<Mesh> createObjectFromFile(const std::string& path);
 void add_object(std::vector<Tri>& tris, int materialIdx = -1);
-void apply_transform(std::vector<Tri>& tris, const glm::mat4& transform);
+void apply_transform(Tri& tri, const glm::mat4& transform);
+void transform(const std::vector<Mesh>& meshes, const glm::mat4& transform);
 mat4 get_translation(glm::vec3 translation);
 mat4 get_scaling(float scale);
 mat4 get_rotation_x(float angle);

@@ -20,7 +20,7 @@ std::vector<Material> getMaterials() {
     
     Material reflectiveRed;
     reflectiveRed.color = vec4(1.0f, 0.0f, 0.0f, 1.0f);
-    reflectiveRed.reflectivity = 0.6f;
+    reflectiveRed.reflectivity = 0.2f;
     reflectiveRed.translucency = 0.0f;
     reflectiveRed.emission = 0.0f;
     reflectiveRed.refractiveIndex = 1.0f;
@@ -29,7 +29,7 @@ std::vector<Material> getMaterials() {
     Material translucentBlue;
     translucentBlue.color = vec4(0.0f, 0.0f, 1.0f, 1.0f);
     translucentBlue.reflectivity = 0.2f;
-    translucentBlue.translucency = 0.6f;
+    translucentBlue.translucency = 0.7f;
     translucentBlue.emission = 0.0f;
     translucentBlue.refractiveIndex = 1.5f;
     tempMaterials.push_back(translucentBlue);

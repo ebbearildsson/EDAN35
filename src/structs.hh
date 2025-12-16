@@ -84,6 +84,8 @@ struct Type {
 struct Mesh {
     int materialIdx;
     int bvhRoot;
+    int triStart;
+    int triCount;
 };
 
 static_assert(sizeof(GPUTri) == 48, "GPUTri size incorrect");

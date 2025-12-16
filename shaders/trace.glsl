@@ -56,6 +56,8 @@ struct Hit {
 struct Mesh {
     int materialIdx;
     int bvhRoot;
+    int triStart;
+    int triCount;
 };
 
 layout (local_size_x = 8, local_size_y = 8) in;
@@ -268,25 +270,32 @@ vec4 getColorRay(vec3 rayOri, vec3 rayDir) {
                 depth++;
             }
         } 
-        else {
-            vec3 lightDir = normalize(lightPos - hit.Q);
-            Hit shadowHit = getHit(hit.Q + N * MINSILON, lightDir);
-            float lightDist = length(lightPos - hit.Q);
-            if (shadowHit.t < lightDist) break;
-        }
-
+        
         if (hit.mat.reflectivity > 0.0) {
             vec3 rd = reflect(normalize(ray.dir), N);
             stack[stackPtr++] = Ray(hit.Q + N * MINSILON, rd, 1.0 / rd);
             depth++;
         }
 
+        vec3 diffuse = abs(dot(N, normalize(lightPos - hit.Q))) * hit.mat.color;
+        
         if (hit.mat.emission > 0.0) {
             color += hit.mat.color * hit.mat.emission;
         }
 
-        vec3 diffuse = abs(dot(N, normalize(lightPos - hit.Q))) * hit.mat.color;
-
+        vec3 lightDir = normalize(lightPos - hit.Q);
+        Hit shadowHit = getHit(hit.Q + N * MINSILON, lightDir);
+        float lightDist = length(lightPos - hit.Q);
+        if (shadowHit.t < lightDist) {
+            float ambient = 0.15;
+            if (shadowHit.mat.translucency > 0.0) {
+                color += diffuse * (shadowHit.mat.translucency + ambient);
+            } else {
+                color += diffuse * ambient;
+            }
+            continue;
+        }
+        
         color += diffuse * (1.0 - hit.mat.reflectivity - hit.mat.translucency);
     }
     return vec4(color, 1.0);

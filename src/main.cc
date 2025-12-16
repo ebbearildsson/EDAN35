@@ -23,33 +23,27 @@ int WIDTH = Config::width;
 int HEIGHT = Config::height;
 
 void generate_scene() {
-    vector<Tri> suz = createObjectFromFile("../models/suzanne.obj", materialMap);
+    vector<Mesh> suz = createObjectFromFile("../models/suzanne.obj");
     mat4 suzTransform = get_translation(vec3(-1.75f, 1.8f, 0.0f)) *
                         get_rotation_y(radians(10.0f)) *
                         get_rotation_x(radians(-30.0f));
-    apply_transform(suz, suzTransform);
-    add_object(suz);
+    transform(suz, suzTransform);
+    buildBVHs(suz);
+    meshes.insert(meshes.end(), suz.begin(), suz.end());
 
-    Mesh suzMesh = buildBVH(static_cast<int>(triIndices.size() - static_cast<int>(suz.size())), static_cast<int>(suz.size()), 0);
-    meshes.push_back(suzMesh);
-
-    vector<Tri> box = createObjectFromFile("../models/cornell-box.obj", materialMap);
+    vector<Mesh> box = createObjectFromFile("../models/cornell-box.obj");
     mat4 boxTransform = get_translation(vec3(0.4f, -5.0f, 8.0f)) *
                         get_scaling(2.0f);
-    apply_transform(box, boxTransform);
-    add_object(box);
+    transform(box, boxTransform);
+    buildBVHs(box);
+    meshes.insert(meshes.end(), box.begin(), box.end());
 
-    Mesh boxMesh = buildBVH(static_cast<int>(triIndices.size() - static_cast<int>(box.size())), static_cast<int>(box.size()), 0);
-    meshes.push_back(boxMesh);
-
-    vector<Tri> spot = createObjectFromFile("../models/spot.obj", materialMap);
+    vector<Mesh> spot = createObjectFromFile("../models/spot.obj");
     mat4 spotTransform = get_translation(vec3(1.2f, -1.3f, 4.2f)) *
                         get_rotation_y(radians(130.0f));
-    apply_transform(spot, spotTransform);
-    add_object(spot);
-
-    Mesh spotMesh = buildBVH(static_cast<int>(triIndices.size() - static_cast<int>(spot.size())), static_cast<int>(spot.size()), materialMap["Purple"]);
-    meshes.push_back(spotMesh);
+    transform(spot, spotTransform);
+    buildBVHs(spot);
+    meshes.insert(meshes.end(), spot.begin(), spot.end());
 
     const float s = 5.0f;
     const float ts = 1.0f;
@@ -76,7 +70,12 @@ void generate_scene() {
         sph.materialIdx = rnd(0, 1) > 0.5f ? materialMap["BloodyRed"] : materialMap["DarkGreen"];
         spheres.push_back(sph);
     }
-    Mesh randomMesh = buildBVH(start, Config::Num, materialMap["DarkGreen"]);
+    Mesh randomMesh;
+    randomMesh.materialIdx = materialMap["DarkGreen"];
+    randomMesh.triStart = start;
+    randomMesh.triCount = Config::Num;
+    randomMesh.bvhRoot = -1;
+    buildBVH(randomMesh);
     meshes.push_back(randomMesh);
 }
 
