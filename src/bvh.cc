@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <vector>
+#include <functional>
 
 void shrinkBounds(int nodeIdx) {
     Node* node = &nodes[nodeIdx];

@@ -86,7 +86,8 @@ static inline float toFloat(int v) {
     return f;
 }
 
-void init(GLuint triSSBO, GLuint sphSSBO, GLuint bvhSSBO, GLuint triIndSSBO, GLuint meshSSBO, GLuint tlasSSBO) {
+void init(GLuint triSSBO, GLuint sphSSBO, GLuint bvhSSBO, 
+        GLuint triIndSSBO, GLuint meshSSBO, GLuint tlasSSBO, GLuint materialSSBO) {
     generate_scene();
     buildTLAS();
 
@@ -118,6 +119,14 @@ void init(GLuint triSSBO, GLuint sphSSBO, GLuint bvhSSBO, GLuint triIndSSBO, GLu
         gpuNodes.push_back(gnode);
     }
 
+    vector<GPUMaterial> gpuMaterials;
+    for (Material& mat : materials) {
+        GPUMaterial gmat;
+        gmat.data0 = vec4(mat.color.r, mat.color.g, mat.color.b, mat.reflectivity);
+        gmat.data1 = vec4(mat.translucency, mat.emission, mat.refractiveIndex, 0.005f);
+        gpuMaterials.push_back(gmat);
+    }
+
     cout << "Memory Usage:\n"
          << " - Triangle size: " << (gpuTris.size() * sizeof(GPUTri)) / 1000000.0 << " MB" << "\n"
          << " - Sphere size: " << (gpuSphs.size() * sizeof(GPUSph)) / 1000000.0 << " MB" << "\n"
@@ -130,6 +139,7 @@ void init(GLuint triSSBO, GLuint sphSSBO, GLuint bvhSSBO, GLuint triIndSSBO, GLu
     createAndFillSSBO<GPUTri>(triSSBO, 0, gpuTris);
     createAndFillSSBO<GPUSph>(sphSSBO, 1, gpuSphs);
     createAndFillSSBO<GPUNode>(bvhSSBO, 2, gpuNodes);
+    createAndFillSSBO<GPUMaterial>(materialSSBO, 3, gpuMaterials);
     createAndFillSSBO<int>(triIndSSBO, 4, triIndices);
     createAndFillSSBO<Mesh>(meshSSBO, 5, meshes);
     createAndFillSSBO<TLAS>(tlasSSBO, 6, tlas);
@@ -176,20 +186,17 @@ int main() {
 
     GLuint quadProgram = createQuadProgram("../shaders/quad.vert", "../shaders/quad.frag");
 
-    GLuint cameraUBO;
+    GLuint cameraUBO, triSSBO, sphSSBO, bvhSSBO, materialSSBO, triIndSSBO, meshSSBO, tlasSSBO, mouseUBO;
+    
     Camera cam;
     createCamera(cameraUBO, cam, WIDTH, HEIGHT);
     createLights();
 
     vec2 mousePos = vec2(0.0f);
-    GLuint mouseUBO;
     createAndFillUBO<vec2>(mouseUBO, 2, mousePos);
 
-    GLuint triSSBO, sphSSBO, bvhSSBO, materialSSBO, triIndSSBO, meshSSBO, tlasSSBO;
-    createAndFillSSBO<Material>(materialSSBO, 3, materials);
-
     float initialTime = glfwGetTime();
-    init(triSSBO, sphSSBO, bvhSSBO, triIndSSBO, meshSSBO, tlasSSBO);
+    init(triSSBO, sphSSBO, bvhSSBO, triIndSSBO, meshSSBO, tlasSSBO, materialSSBO);
     cout << "BVH build time: " << (glfwGetTime() - initialTime) << " seconds\n";
     
     int nbFrames = 0;
@@ -204,6 +211,7 @@ int main() {
     const int dispatchSize = 8;
     const GLuint gx = (WIDTH + dispatchSize - 1) / dispatchSize;
     const GLuint gy = (HEIGHT + dispatchSize - 1) / dispatchSize;
+
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
         glUseProgram(computeProgram);
@@ -250,6 +258,8 @@ int main() {
         glfwSwapBuffers(window);
     }
 
+    glDeleteBuffers(1, &quadVBO);
+    glDeleteVertexArrays(1, &quadVAO);
     glDeleteProgram(computeProgram);
     glDeleteProgram(quadProgram);
     glDeleteTextures(1, &tex);

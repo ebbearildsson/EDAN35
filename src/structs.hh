@@ -56,6 +56,16 @@ struct GPUSph {
     vec4 data0; // center.x, center.y, center.z, radius
 };
 
+struct GPUNode {
+    vec4 data0; // min.x, min.y, min.z, leftOrStart
+    vec4 data1; // max.x, max.y, max.z, count
+};
+
+struct GPUMaterial {
+    vec4 data0; // color.r, color.g, color.b, reflectivity
+    vec4 data1; // translucency, emission, refractiveIndex, roughness
+};
+
 struct Material { //TODO: compact this
     vec4 color;
     float reflectivity;
@@ -78,11 +88,6 @@ struct Node {
     vec3 max;
     int start;
     int count;
-};
-
-struct GPUNode {
-    vec4 data0; // min.x, min.y, min.z, leftOrStart
-    vec4 data1; // max.x, max.y, max.z, count
 };
 
 struct Type {
