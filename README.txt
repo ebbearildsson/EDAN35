@@ -10,3 +10,9 @@ cd build
 cmake ..
 cmake --build .
 ./Raytracer
+
+## TODO
+ - [ ] Path tracing for details
+ - [ ] Textures
+ - [ ] Raymarch shadows?
+ - [ ] Specularity?

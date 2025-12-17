@@ -64,11 +64,13 @@ struct Material { //TODO: compact this
     float refractiveIndex;
 };
 
-struct TLAS {
-    vec3 min;
-    vec3 max;
-    int idxOrLeft;
+struct TLAS { // will be packed later
+    vec4 min;
+    vec4 max;
+    int idx;
     int type; // 0 = bvh, 1 = sphere
+    int left;
+    int right;
 };
 
 struct Node {

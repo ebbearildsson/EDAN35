@@ -1,12 +1,12 @@
 #version 430 core
 
-const int DEPTH = 4;
+int DEPTH = 4;
 const float EPSILON = 1e-6;
 const float MINSILON = 1e-3;
 const float MAXILON = 1e6;
-const int MAX_STACK_SIZE = 32;
-const float MAX_RAY_DISTANCE = 200.0;
-const float MAX_RAY_DENSITY = 100.0;
+const int MAX_STACK_SIZE = 64;
+const float MAX_RAY_DISTANCE = 100.0;
+const int EXTRA_RAYS = 2; // times 2 + 1 per axis
 
 struct Triangle {
     vec4 d0; // v0.x, v0.y, v0.z, e1.x
@@ -14,16 +14,16 @@ struct Triangle {
     vec4 d2; // e2.z, normal.x, normal.y, normal.z
 };
 
+vec3 v0(Triangle tri) { return tri.d0.xyz; };
 vec3 e1(Triangle tri) { return vec3(tri.d0.w, tri.d1.x, tri.d1.y); };
 vec3 e2(Triangle tri) { return vec3(tri.d1.z, tri.d1.w, tri.d2.x); };
-vec3 v0(Triangle tri) { return vec3(tri.d0.x, tri.d0.y, tri.d0.z); };
-vec3 n(Triangle  tri) { return vec3(tri.d2.y, tri.d2.z, tri.d2.w); };
+vec3 n(Triangle  tri) { return tri.d2.yzw; };
 
 struct Sphere { vec4 data0; };
 vec3 center(Sphere sph) { return sph.data0.xyz; }
 float radius(Sphere sph) { return sph.data0.w; }
 
-struct Node { //TODO: compact this better
+struct Node {
     vec4 data0; // min.x, min.y, min.z, leftOrStart
     vec4 data1; // max.x, max.y, max.z, count
 };
@@ -56,6 +56,15 @@ struct Mesh {
     int triCount;
 };
 
+struct TLAS {
+    vec3 min; float _pad0;
+    vec3 max; float _pad1;
+    int idx;
+    int type; // 0 = mesh, 1 = sphere
+    int left;
+    int right;
+};
+
 layout (local_size_x = 8, local_size_y = 8) in;
 
 layout (rgba32f, binding = 0) uniform image2D imgOutput;
@@ -86,6 +95,8 @@ layout (std430, binding = 3) buffer Materials { Material materials[]; };
 layout (std430, binding = 4) buffer TriIndices { int triIndices[]; };
 
 layout (std430, binding = 5) buffer Meshes { Mesh meshes[]; };
+
+layout (std430, binding = 6) buffer TLASBuffer { TLAS tlas[]; };
 
 float findTriangleIntersection(vec3 rayOrigin, vec3 rayDir, int i) {
     Triangle tri = triangles[i];
@@ -240,22 +251,78 @@ Hit intersectSpheres(vec3 rayOri, vec3 rayDir) {
 }
 
 Hit getHit(vec3 rayOri, vec3 rayDir) {
-    Hit closestHit = intersectSpheres(rayOri, rayDir);
-    vec3 inv = 1.0 / rayDir;
-    for (int meshIdx = 0; meshIdx < meshes.length(); meshIdx++) {
-        Node topNode = nodes[meshes[meshIdx].bvhRoot];
-        float tAABB = intersectAABB(rayOri, inv, nmin(topNode), nmax(topNode));
-        if (tAABB >= closestHit.t) continue;
+    vec3 invRayDir = 1.0 / rayDir;
+    float closestT = MAXILON;
+    Hit finalHit;
+    finalHit.t = MAXILON;
 
-        Hit triHit = traverseBVH(rayOri, rayDir, inv, meshIdx, closestHit.t);
-        if (triHit.t < closestHit.t) {
-            closestHit = triHit;
-            closestHit.mat = materials[meshes[meshIdx].matIdx];
+    uint istack[MAX_STACK_SIZE];
+    float tstack[MAX_STACK_SIZE];
+    int sp = 0;
+    istack[sp] = 0;
+    tstack[sp] = 0;
+    sp++;
+
+    while (sp-- > 0) {
+        float t = tstack[sp];
+        if (t >= closestT) continue;
+        
+        uint child = istack[sp];
+        TLAS node = tlas[child];
+
+        if (node.type == 0) {
+            Hit hit = traverseBVH(rayOri, rayDir, invRayDir, node.idx, closestT);
+            if (hit.t < closestT) {
+                closestT = hit.t;
+                finalHit = hit;
+                finalHit.mat = materials[meshes[node.idx].matIdx];
+            }
+        } else if (node.type == 1) {
+            Hit hit = intersectSpheres(rayOri, rayDir);
+            if (hit.t < closestT) {
+                closestT = hit.t;
+                finalHit = hit;
+                finalHit.mat = materials[1];
+            }
+        } else {
+            uint left = uint(node.left);
+            uint right = uint(node.right);
+
+            TLAS ln = tlas[left];
+            TLAS rn = tlas[right];
+
+            float tL = intersectAABB(rayOri, invRayDir, ln.min, ln.max);
+            float tR = intersectAABB(rayOri, invRayDir, rn.min, rn.max);
+
+            if (tL < tR) {
+                if (tR <= closestT && tR != MAXILON && sp < MAX_STACK_SIZE) { 
+                    istack[sp] = right; 
+                    tstack[sp] = tR; 
+                    sp++; 
+                }
+                if (tL <= closestT && tL != MAXILON && sp < MAX_STACK_SIZE) { 
+                    istack[sp] = left;  
+                    tstack[sp] = tL; 
+                    sp++; 
+                }
+            } else {
+                if (tL < closestT && tL != MAXILON && sp < MAX_STACK_SIZE) { 
+                    istack[sp] = left;  
+                    tstack[sp] = tL; 
+                    sp++;
+                }
+                if (tR < closestT && tR != MAXILON && sp < MAX_STACK_SIZE) { 
+                    istack[sp] = right; 
+                    tstack[sp] = tR; 
+                    sp++; 
+                }
+            }
         }
     }
-    return closestHit;
-}
 
+    return finalHit;
+}
+    
 vec4 getColorRay(vec3 rayOri, vec3 rayDir) {
     vec3 color = vec3(0.0);
     struct Ray { vec3 ori; vec3 dir; vec3 inv; };
@@ -336,8 +403,6 @@ vec3 addJitter(vec3 dir, inout uint rng) {
 vec4 getColorPath(vec3 rayOri, vec3 rayDir, vec3 prevColor, int frames) {
     vec3 collectedLight = vec3(0.0);
 
-    if (frames == 0) return vec4(0.0);
-
     uvec3 gid = gl_GlobalInvocationID;
     uint rng = uint(gid.x) * 1973u ^ uint(gid.y) * 9277u ^ uint(gid.z) * 2663u ^ 0x9E3779B9u;
     rng += uint(frames) * 1013904223u;
@@ -377,9 +442,7 @@ vec4 getColorPath(vec3 rayOri, vec3 rayDir, vec3 prevColor, int frames) {
         }
     }
 
-    vec3 accumColor = prevColor * float(frames) + collectedLight;
-    accumColor /= float(frames + 1);
-    return vec4(accumColor, 1.0);
+    return vec4(collectedLight, 1.0);
 }
 
 void main() {
@@ -388,29 +451,26 @@ void main() {
     uv = uv * 2.0 - 1.0;
     uv.x *= aspect;
     vec3 rayDir = normalize(camForward + uv.x * tan(fov / 2.0) * normalize(cross(camForward, camUp)) + uv.y * tan(fov / 2.0) * camUp);
-    //int d = int(floor(distance(vec2(pixel), mousePos))); //TODO: Use texture to get distance and sampling info
-    //vec4 color = getColorRay(camPos, rayDir);
-    //if (d < MAX_RAY_DISTANCE) {
-    //    int ray_density = int((MAX_RAY_DISTANCE - d) / MAX_RAY_DENSITY); //TODO: Handle this better
-    //    ray_density = min(ray_density, 5);
-    //    for (int y = -ray_density; y <= ray_density; y++) {
-    //        for (int x = -ray_density; x <= ray_density; x++) {
-    //            if (x == 0 && y == 0) continue;
-    //            vec2 offset = vec2(float(x), float(y)) * 0.001;
-    //            vec2 offsetUV = uv + offset;
-    //            vec3 offsetRayDir = normalize(camForward + offsetUV.x * tan(fov / 2.0) * normalize(cross(camForward, camUp)) + offsetUV.y * tan(fov / 2.0) * camUp);
-    //            color += getColorRay(camPos, offsetRayDir);
-    //        }
-    //    }
-    //    float totalRays = float((2 * ray_density + 1) * (2 * ray_density + 1));
-    //    color /= totalRays;
-    //}
-    //imageStore(imgOutput, pixel, color);
+    float d = distance(vec2(pixel), mousePos);
+    
+    vec4 color = getColorRay(camPos, rayDir);
+    if (d < MAX_RAY_DISTANCE) {
+        DEPTH = 6;
+        for (int y = -EXTRA_RAYS; y <= EXTRA_RAYS; y++) {
+            for (int x = -EXTRA_RAYS; x <= EXTRA_RAYS; x++) {
+                if (x == 0 && y == 0) continue;
+                vec3 offset = vec3(float(x), float(y), 0.0) * 0.005;
+                vec4 jitteredColor = getColorRay(camPos + offset, rayDir);
+                color += jitteredColor;
+            }
+        }
+        int rays = (EXTRA_RAYS * 2 + 1) * (EXTRA_RAYS * 2 + 1);
+        color.rgb /= float(rays);
+    }
 
     //vec4 prevColor = imageLoad(imgOutput, pixel);
     //vec4 color = getColorPath(camPos, rayDir, prevColor.rgb, time);
     //imageStore(imgOutput, pixel, color);
 
-    vec4 color = getColorRay(camPos, rayDir);
     imageStore(imgOutput, pixel, color);
 }

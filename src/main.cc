@@ -86,8 +86,9 @@ static inline float toFloat(int v) {
     return f;
 }
 
-void init(GLuint triSSBO, GLuint sphSSBO, GLuint bvhSSBO, GLuint triIndSSBO, GLuint meshSSBO) {
+void init(GLuint triSSBO, GLuint sphSSBO, GLuint bvhSSBO, GLuint triIndSSBO, GLuint meshSSBO, GLuint tlasSSBO) {
     generate_scene();
+    buildTLAS();
 
     vector<GPUTri> gpuTris;
     for (Tri& tri : triangles) {
@@ -131,6 +132,7 @@ void init(GLuint triSSBO, GLuint sphSSBO, GLuint bvhSSBO, GLuint triIndSSBO, GLu
     createAndFillSSBO<GPUNode>(bvhSSBO, 2, gpuNodes);
     createAndFillSSBO<int>(triIndSSBO, 4, triIndices);
     createAndFillSSBO<Mesh>(meshSSBO, 5, meshes);
+    createAndFillSSBO<TLAS>(tlasSSBO, 6, tlas);
 }
 
 int main() {
@@ -183,11 +185,11 @@ int main() {
     GLuint mouseUBO;
     createAndFillUBO<vec2>(mouseUBO, 2, mousePos);
 
-    GLuint triSSBO, sphSSBO, bvhSSBO, materialSSBO, triIndSSBO, meshSSBO;
+    GLuint triSSBO, sphSSBO, bvhSSBO, materialSSBO, triIndSSBO, meshSSBO, tlasSSBO;
     createAndFillSSBO<Material>(materialSSBO, 3, materials);
 
     float initialTime = glfwGetTime();
-    init(triSSBO, sphSSBO, bvhSSBO, triIndSSBO, meshSSBO);
+    init(triSSBO, sphSSBO, bvhSSBO, triIndSSBO, meshSSBO, tlasSSBO);
     cout << "BVH build time: " << (glfwGetTime() - initialTime) << " seconds\n";
     
     int nbFrames = 0;

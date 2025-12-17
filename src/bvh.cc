@@ -132,28 +132,132 @@ void buildBVHs(std::vector<Mesh>& meshes) {
     for (Mesh& mesh : meshes) buildBVH(mesh);
 }
 
-TLAS findBestMatch(TLAS bachelor, const std::vector<TLAS>& entries) {
-    // Placeholder for best match finding logic
-    return entries[0];
+static float getArea(const TLAS& a, const TLAS& b) {
+    vec3 minv = min(vec3(a.min), vec3(b.min));
+    vec3 maxv = max(vec3(a.max), vec3(b.max));
+    return area(minv, maxv);
+}
+
+static bool findBestPairIdx(const std::vector<TLAS>& allEntries, const std::vector<int>& active, int& outActiveA, int& outActiveB) {
+    float bestCost = FLT_MAX;
+    bool found = false;
+
+    for (int i = 0; i < (int)active.size(); ++i) {
+        for (int j = i + 1; j < (int)active.size(); ++j) {
+            float cost = getArea(allEntries[active[i]], allEntries[active[j]]);
+            if (cost < bestCost) {
+                bestCost = cost;
+                outActiveA = i;
+                outActiveB = j;
+                found = true;
+            }
+        }
+    }
+    return found;
+}
+
+static std::vector<TLAS> getOrdered(const std::vector<TLAS>& allEntries, int rootIdx) {
+    std::vector<TLAS> ordered;
+    ordered.reserve(allEntries.size());
+    std::vector<int> remap(allEntries.size(), -1);
+
+    std::function<int(int)> dfs = [&](int oldIdx) -> int {
+        int& newIdx = remap[oldIdx];
+        if (newIdx != -1) return newIdx;
+
+        newIdx = (int)ordered.size();
+        ordered.push_back(allEntries[oldIdx]);
+
+        TLAS& n = ordered.back();
+        if (n.idx == -1) {
+            int lNew = dfs(n.left);
+            int rNew = dfs(n.right);
+            n.left = lNew;
+            n.right = rNew;
+        } else {
+            n.left = 0;
+            n.right = 0;
+        }
+
+        return newIdx;
+    };
+
+    dfs(rootIdx);
+    return ordered;
 }
 
 void buildTLAS() {
-    std::vector<TLAS> tlasEntries;
-    for (const Mesh& mesh : meshes) {
-        Node& root = nodes[mesh.bvhRoot];
+    std::vector<TLAS> allEntries;
+    std::vector<int> active;
+
+    allEntries.reserve(meshes.size() + spheres.size());
+    active.reserve(meshes.size() + spheres.size());
+
+    for (int i = 0; i < (int)meshes.size(); ++i) {
+        if (meshes[0].bvhRoot < 0) continue;
+
+        const Node& root = nodes[meshes[i].bvhRoot];
+
         TLAS entry;
-        entry.min = root.min;
-        entry.max = root.max;
-        entry.idxOrLeft = mesh.bvhRoot;
-        entry.type = 0; // BVH
-        tlasEntries.push_back(entry);
+        entry.min = vec4(root.min, 1.0f);
+        entry.max = vec4(root.max, 1.0f);
+        entry.idx = i;
+        entry.type = 0;
+        entry.left = 0;
+        entry.right = 0;
+
+        allEntries.push_back(entry);
+        active.push_back((int)allEntries.size() - 1);
     }
-    for (const Sph& sph : spheres) {
+
+    for (int si = 0; si < (int)spheres.size(); ++si) {
+        const Sph& sph = spheres[si];
+
         TLAS entry;
-        entry.min = sph.center - vec3(sph.radius);
-        entry.max = sph.center + vec3(sph.radius);
-        entry.idxOrLeft = &sph - &spheres[0];
-        entry.type = 1; // Sphere
-        tlasEntries.push_back(entry);
+        entry.min = vec4(sph.center - vec3(sph.radius), 1.0f);
+        entry.max = vec4(sph.center + vec3(sph.radius), 1.0f);
+        entry.idx = si;
+        entry.type = 1;
+        entry.left = 0;
+        entry.right = 0;
+
+        allEntries.push_back(entry);
+        active.push_back((int)allEntries.size() - 1);
     }
+
+    if (active.empty()) {
+        tlas.clear();
+        return;
+    }
+
+    while (active.size() > 1) {
+        int aPos = -1, bPos = -1;
+        if (!findBestPairIdx(allEntries, active, aPos, bPos)) break;
+
+        int aIdx = active[aPos];
+        int bIdx = active[bPos];
+
+        const TLAS& a = allEntries[aIdx];
+        const TLAS& b = allEntries[bIdx];
+
+        TLAS parent;
+        parent.min = min(a.min, b.min);
+        parent.max = max(a.max, b.max);
+        parent.idx = -1;
+        parent.type = -1;
+        parent.left = aIdx;
+        parent.right = bIdx;
+
+        allEntries.push_back(parent);
+        int pIdx = (int)allEntries.size() - 1;
+
+        if (aPos > bPos) std::swap(aPos, bPos);
+        active.erase(active.begin() + bPos);
+        active.erase(active.begin() + aPos);
+        active.push_back(pIdx);
+    }
+
+    int rootIdx = active[0];
+
+    tlas = getOrdered(allEntries, rootIdx);
 }
