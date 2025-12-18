@@ -16,3 +16,4 @@ cmake --build .
  - [ ] Textures
  - [ ] Raymarch shadows?
  - [ ] Specularity?
+ - [ ] Better TLAS builder (optimize based on camera position)
