@@ -122,8 +122,8 @@ void init(GLuint triSSBO, GLuint sphSSBO, GLuint bvhSSBO,
     vector<GPUMaterial> gpuMaterials;
     for (Material& mat : materials) {
         GPUMaterial gmat;
-        gmat.data0 = vec4(mat.color.r, mat.color.g, mat.color.b, mat.reflectivity);
-        gmat.data1 = vec4(mat.translucency, mat.emission, mat.refractiveIndex, 0.005f);
+        gmat.data0 = vec4(mat.color, mat.reflectivity);
+        gmat.data1 = vec4(mat.translucency, mat.emission, mat.refractiveIndex, mat.roughness);
         gpuMaterials.push_back(gmat);
     }
 

@@ -1,6 +1,6 @@
 #version 430 core
 
-int DEPTH = 4;
+int DEPTH = 16;
 const float EPSILON = 1e-6;
 const float MINSILON = 1e-3;
 const float MAXILON = 1e6;
@@ -448,92 +448,6 @@ float rand01(inout uint rng) {
     rng = rng * 1664525u + 1013904223u;
     return float(rng) / 4294967295.0;
 }
-    
-vec4 getColorRay(vec3 rayOri, vec3 rayDir) {
-    vec3 color = vec3(0.0);
-    struct Ray { vec3 ori; vec3 dir; vec3 inv; };
-
-    int depth = 0;
-    Ray stack[MAX_STACK_SIZE];
-    int sp = 0;
-    stack[sp++] = Ray(rayOri, rayDir, 1.0 / rayDir);
-    while (sp > 0 && depth < DEPTH) {
-        Ray ray = stack[--sp];
-        Hit hit = getHit(ray.ori, ray.dir);
-        if (hit.t >= MAXILON) continue;
-
-        vec3 N = faceforward(hit.N, ray.dir, hit.N);
-
-        if (mTrans(hit.mat) > 0.0) {
-            bool entering = dot(N, ray.dir) < 0.0;
-            vec3 Ntrans = entering ? N : -N;
-            float eta = entering ? (1.0 / mRefrIdx(hit.mat)) : mRefrIdx(hit.mat);
-            vec3 rd = refract(normalize(ray.dir), Ntrans, eta);
-            if (length(rd) > 0.0) {
-                vec3 offset = entering ? (-Ntrans * MINSILON) : (Ntrans * MINSILON);
-                rd = normalize(rd);
-                stack[sp++] = Ray(hit.Q + offset, rd, 1.0 / rd);
-                depth++;
-            }
-        } 
-        
-        vec3 biased = hit.Q + N * MINSILON;
-        if (mRef(hit.mat) > 0.0) {
-            vec3 rd = reflect(normalize(ray.dir), N);
-            stack[sp++] = Ray(biased, rd, 1.0 / rd);
-            depth++;
-        }
-
-        vec3 lightDir = normalize(lightPos - hit.Q);
-        vec3 diffuse = abs(dot(N, lightDir)) * mColor(hit.mat);
-        
-        if (mEmit(hit.mat) > 0.0) {
-            color += mColor(hit.mat) * mEmit(hit.mat);
-        }
-
-        float lightDist = length(lightPos - biased);
-
-        if (getHitAny(biased, lightDir, lightDist)) {
-            Hit shadowHit = getHit(biased, lightDir);
-
-            float ambient = 0.15;
-            const int shadowHelpers = 16;
-            int shadowHits = 0;
-
-            uint shadowRng = uint(gl_GlobalInvocationID.x) * 1973u
-                           ^ uint(gl_GlobalInvocationID.y) * 9277u
-                           //^ uint(time) * 2663u // only useful for accumulating frames
-                           ^ 0x9E3779B9u;
-
-            vec3 up = (abs(lightDir.y) < 0.99) ? vec3(0, 1, 0) : vec3(1, 0, 0);
-            vec3 right = normalize(cross(lightDir, up));
-            up = normalize(cross(right, lightDir));
-
-            float radius = 0.2;
-            for (int k = 0; k < shadowHelpers; k++) {
-                float baseAngle = (2.0 * 3.14159265359) * (float(k) / float(shadowHelpers));
-                float angJ = (rand01(shadowRng) - 0.5) * (2.0 * 3.14159265359 / float(shadowHelpers));
-                float radJ = 0.35 + 0.65 * rand01(shadowRng);
-
-                float a = baseAngle + angJ;
-                vec2 o2 = vec2(cos(a), sin(a)) * (radius * radJ);
-                o2 += vec2(rand01(shadowRng) - 0.5, rand01(shadowRng) - 0.5) * (radius * 0.15);
-
-                vec3 offset = right * o2.x + up * o2.y;
-                vec3 helperOri = biased + offset;
-                if (getHitAny(helperOri, lightDir, lightDist)) shadowHits++;
-            }
-
-            ambient += pow(1.0 - float(shadowHits) / float(shadowHelpers), 2.0);
-            if (mTrans(shadowHit.mat) > 0.0) ambient += mTrans(shadowHit.mat);
-            color += diffuse * clamp(ambient, 0.0, 1.0);
-            continue;
-        }
-        
-        color += diffuse * (1.0 - mRef(hit.mat) - mTrans(hit.mat));
-    }
-    return vec4(color, 1.0);
-}
 
 vec3 addJitter(vec3 dir, inout uint rng) {
     float u1 = rand01(rng);
@@ -575,13 +489,100 @@ vec3 addConeJitter(vec3 dir, float coneAngleRad, inout uint rng) {
     vec3 d = (cos(phi) * sinTheta) * u + (sin(phi) * sinTheta) * v + cosTheta * w;
     return normalize(d);
 }
+    
+vec4 getColorRay(vec3 rayOri, vec3 rayDir) {
+    vec3 color = vec3(0.0);
+    struct Ray { vec3 ori; vec3 dir; vec3 inv; };
 
-vec4 getColorPath(vec3 rayOri, vec3 rayDir, vec3 prevColor, int frames) {
+    uint rng = uint(gl_GlobalInvocationID.x) * 1973u
+                   ^ uint(gl_GlobalInvocationID.y) * 9277u
+                   ^ uint(time) * 2663u // only useful for accumulating frames
+                   ^ 0x9E3779B9u;
+    int depth = 0;
+    Ray stack[MAX_STACK_SIZE];
+    int sp = 0;
+    rayDir = normalize(addConeJitter(rayDir, 0.01, rng));
+    stack[sp++] = Ray(rayOri, rayDir, 1.0 / rayDir);
+    while (sp > 0 && depth < DEPTH) {
+        Ray ray = stack[--sp];
+        Hit hit = getHit(ray.ori, ray.dir);
+        if (hit.t >= MAXILON) continue;
+
+        vec3 N = faceforward(hit.N, ray.dir, hit.N);
+
+        if (mTrans(hit.mat) > 0.0) {
+            bool entering = dot(N, ray.dir) < 0.0;
+            vec3 Ntrans = entering ? N : -N;
+            float eta = entering ? (1.0 / mRefrIdx(hit.mat)) : mRefrIdx(hit.mat);
+            vec3 rd = refract(normalize(ray.dir), Ntrans, eta);
+            if (length(rd) > 0.0) {
+                vec3 offset = entering ? (-Ntrans * MINSILON) : (Ntrans * MINSILON);
+                rd = normalize(rd);
+                stack[sp++] = Ray(hit.Q + offset, rd, 1.0 / rd);
+                depth++;
+            }
+        } 
+        
+        vec3 biased = hit.Q + N * MINSILON;
+        if (mRef(hit.mat) > 0.0) {
+            vec3 rd = normalize(addConeJitter(reflect(ray.dir, N), mRough(hit.mat), rng));
+            stack[sp++] = Ray(biased, rd, 1.0 / rd);
+            depth++;
+        }
+
+        vec3 lightDir = normalize(lightPos - hit.Q);
+        vec3 diffuse = abs(dot(N, lightDir)) * mColor(hit.mat);
+        
+        if (mEmit(hit.mat) > 0.0) {
+            color += mColor(hit.mat) * mEmit(hit.mat);
+        }
+
+        float lightDist = length(lightPos - biased);
+
+        if (getHitAny(biased, lightDir, lightDist)) {
+            Hit shadowHit = getHit(biased, lightDir);
+
+            float ambient = 0.15;
+            const int shadowHelpers = 4;
+            int shadowHits = 0;
+
+
+            vec3 up = (abs(lightDir.y) < 0.99) ? vec3(0, 1, 0) : vec3(1, 0, 0);
+            vec3 right = normalize(cross(lightDir, up));
+            up = normalize(cross(right, lightDir));
+
+            float radius = 0.2;
+            for (int k = 0; k < shadowHelpers; k++) {
+                float baseAngle = (2.0 * 3.14159265359) * (float(k) / float(shadowHelpers));
+                float angJ = (rand01(rng) - 0.5) * (2.0 * 3.14159265359 / float(shadowHelpers));
+                float radJ = 0.35 + 0.65 * rand01(rng);
+
+                float a = baseAngle + angJ;
+                vec2 o2 = vec2(cos(a), sin(a)) * (radius * radJ);
+                o2 += vec2(rand01(rng) - 0.5, rand01(rng) - 0.5) * (radius * 0.15);
+
+                vec3 offset = right * o2.x + up * o2.y;
+                vec3 helperOri = biased + offset;
+                if (getHitAny(helperOri, lightDir, lightDist)) shadowHits++;
+            }
+
+            ambient += 1.0 - float(shadowHits) / float(shadowHelpers);
+            if (mTrans(shadowHit.mat) > 0.0) ambient += mTrans(shadowHit.mat);
+            color += diffuse * clamp(ambient, 0.0, 1.0);
+            continue;
+        }
+        
+        color += diffuse * (1.0 - mRef(hit.mat) - mTrans(hit.mat));
+    }
+    return vec4(color, 1.0);
+}
+
+vec4 getColorPath(vec3 rayOri, vec3 rayDir) {
     vec3 collectedLight = vec3(0.0);
 
     uvec3 gid = gl_GlobalInvocationID;
     uint rng = uint(gid.x) * 1973u ^ uint(gid.y) * 9277u ^ uint(gid.z) * 2663u ^ 0x9E3779B9u;
-    rng += uint(frames) * 1013904223u;
+    rng += uint(time) * 1013904223u;
 
     vec3 throughput = vec3(1.0);
 
@@ -601,37 +602,40 @@ vec4 getColorPath(vec3 rayOri, vec3 rayDir, vec3 prevColor, int frames) {
 
         rayOri = hit.Q + N * MINSILON;
 
-        vec3 L = lightPos - rayOri;
-        float dist2 = dot(L, L);
-        float dist = sqrt(dist2);
-        vec3 ldir = L / dist;
-        float ndotl = max(dot(N, ldir), 0.0);
-        if (ndotl > 0.0) {
-            collectedLight += throughput * mColor(hit.mat) * (lightIntensity * ndotl / max(dist2, EPSILON));
-            //if (!getHitAny(rayOri, ldir, dist - MINSILON)) {
-            //}
-        }
 
-        if (mRef(hit.mat) > r) {
+        float pRef = clamp(mRef(hit.mat), 0.0, 1.0);
+        float pTrans = clamp(mTrans(hit.mat), 0.0, 1.0);
+        float pDiff = clamp(1.0 - pRef - pTrans, 0.0, 1.0);
+
+        if (pRef > r) {
             rayDir = addConeJitter(reflect(rayDir, N), mRough(hit.mat), rng);
-        } else if (mTrans(hit.mat) + mRef(hit.mat) > r) {
+            throughput *= mColor(hit.mat) / max(pRef, EPSILON);
+        } else if (pRef + pTrans > r) {
             float eta = entering ? (1.0 / mRefrIdx(hit.mat)) : mRefrIdx(hit.mat);
             vec3 rd = refract(normalize(rayDir), N, eta);
-            if (length(rd) > 0.0) {
+            if (length(rd) > EPSILON) {
                 rayDir = addConeJitter(normalize(rd), mRough(hit.mat), rng);
                 rayOri = hit.Q - N * MINSILON;
+                throughput *= mColor(hit.mat) / max(pTrans, EPSILON);
             } else {
                 rayDir = addConeJitter(reflect(rayDir, N), mRough(hit.mat), rng);
+                throughput *= mColor(hit.mat) / max(pTrans, EPSILON);
             }
         } else {
+            vec3 L = lightPos - rayOri;
+            float dist2 = dot(L, L);
+            float dist = sqrt(dist2);
+            vec3 ldir = L / dist;
+            float ndotl = max(dot(N, ldir), 0.0);
+            collectedLight += throughput * mColor(hit.mat) * (ndotl / max(dist2, EPSILON));
             rayDir = addJitter(N, rng);
+            throughput *= mColor(hit.mat) / pDiff;
         }
 
-        throughput *= mColor(hit.mat);
+        throughput = clamp(throughput, vec3(0.0), vec3(1.0));
     }
 
-    vec3 finalColor = mix(prevColor, collectedLight, 1.0 / float(frames + 1));
-    return vec4(finalColor, 1.0);
+    return vec4(collectedLight, 1.0);
 }
 
 void main() {
@@ -640,26 +644,29 @@ void main() {
     uv = uv * 2.0 - 1.0;
     uv.x *= aspect;
     vec3 rayDir = normalize(camForward + uv.x * tan(fov / 2.0) * normalize(cross(camForward, camUp)) + uv.y * tan(fov / 2.0) * camUp);
-    float d = distance(vec2(pixel), mousePos);
     
-    vec4 color = getColorRay(camPos, rayDir);
-    if (d < MAX_RAY_DISTANCE) {
-        DEPTH = 6;
-        for (int y = -EXTRA_RAYS; y <= EXTRA_RAYS; y++) {
-            for (int x = -EXTRA_RAYS; x <= EXTRA_RAYS; x++) {
-                if (x == 0 && y == 0) continue;
-                vec3 offset = vec3(float(x), float(y), 0.0) * 0.005;
-                vec4 jitteredColor = getColorRay(camPos + offset, rayDir);
-                color += jitteredColor;
-            }
-        }
-        int rays = (EXTRA_RAYS * 2 + 1) * (EXTRA_RAYS * 2 + 1);
-        color.rgb /= float(rays);
+    if (time <= 1) {
+        vec4 color = getColorRay(camPos, rayDir);
+        imageStore(imgOutput, pixel, color);
+        return;
     }
-    imageStore(imgOutput, pixel, color);
 
-    //DEPTH = 32;
-    //vec4 prevColor = imageLoad(imgOutput, pixel);
-    //vec4 color = getColorPath(camPos, rayDir, prevColor.rgb, time);
-    //imageStore(imgOutput, pixel, color);
+    vec4 color = imageLoad(imgOutput, pixel);
+    if(getHitAny(camPos, rayDir, MAXILON)) {
+        color += getColorRay(camPos, rayDir);
+    
+        //float d = distance(vec2(pixel), mousePos);
+        //if (d < MAX_RAY_DISTANCE) {
+        //    for (int y = -EXTRA_RAYS; y <= EXTRA_RAYS; y++) {
+        //        for (int x = -EXTRA_RAYS; x <= EXTRA_RAYS; x++) {
+        //            if (x == 0 && y == 0) continue;
+        //            vec3 offset = vec3(float(x), float(y), 0.0) * 0.005;
+        //            color += getColorRay(camPos + offset, rayDir);
+        //        }
+        //    }
+        //} 
+    } 
+
+    //color += getColorPath(camPos, rayDir);
+    imageStore(imgOutput, pixel, color);
 }

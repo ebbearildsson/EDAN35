@@ -66,12 +66,13 @@ struct GPUMaterial {
     vec4 data1; // translucency, emission, refractiveIndex, roughness
 };
 
-struct Material { //TODO: compact this
-    vec4 color;
+struct Material {
+    vec3 color;
     float reflectivity;
     float translucency;
     float emission;
     float refractiveIndex;
+    float roughness;
 };
 
 struct TLAS { // will be packed later
